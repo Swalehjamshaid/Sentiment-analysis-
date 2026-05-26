@@ -1,7 +1,10 @@
 # =========================================================
 # FILE: app/scraper.py
 # TRUSTLYTICS AI - ULTRA ENTERPRISE GOOGLE REVIEW SCRAPER
+# FULLY STABILIZED PRODUCTION VERSION
 # =========================================================
+
+print("🔥 SCRAPER.PY LOADED")
 
 from __future__ import annotations
 
@@ -65,7 +68,7 @@ PROXY_SERVER = os.getenv(
 SCRAPER_TIMEOUT = int(
     os.getenv(
         "SCRAPER_TIMEOUT",
-        "120"
+        "180"
     )
 )
 
@@ -86,7 +89,7 @@ MAX_RETRIES = int(
 MAX_PROVIDER_RUNTIME = int(
     os.getenv(
         "SCRAPER_PROVIDER_RUNTIME",
-        "60"
+        "120"
     )
 )
 
@@ -97,16 +100,6 @@ ENABLE_SERPAPI = os.getenv(
 
 ENABLE_PLAYWRIGHT = os.getenv(
     "ENABLE_PLAYWRIGHT_FALLBACK",
-    "true"
-).lower() == "true"
-
-ENABLE_CURL = os.getenv(
-    "ENABLE_CURL_SCRAPER",
-    "true"
-).lower() == "true"
-
-ENABLE_CRAWL4AI = os.getenv(
-    "ENABLE_CRAWL4AI_SCRAPER",
     "true"
 ).lower() == "true"
 
@@ -132,30 +125,16 @@ if (
 # OPTIONAL IMPORTS
 # =========================================================
 
-REQUESTS_AVAILABLE = False
 PLAYWRIGHT_AVAILABLE = False
 STEALTH_AVAILABLE = False
 BS4_AVAILABLE = False
-SELECTOLAX_AVAILABLE = False
-CURL_AVAILABLE = False
-CRAWL4AI_AVAILABLE = False
 FAKE_UA_AVAILABLE = False
 
 # =========================================================
 # REQUESTS
 # =========================================================
 
-try:
-
-    import requests
-
-    REQUESTS_AVAILABLE = True
-
-except Exception as e:
-
-    logger.warning(
-        f"requests unavailable => {e}"
-    )
+import requests
 
 # =========================================================
 # BEAUTIFULSOUP
@@ -169,25 +148,7 @@ try:
 
 except Exception as e:
 
-    logger.warning(
-        f"BeautifulSoup unavailable => {e}"
-    )
-
-# =========================================================
-# SELECTOLAX
-# =========================================================
-
-try:
-
-    from selectolax.parser import HTMLParser
-
-    SELECTOLAX_AVAILABLE = True
-
-except Exception as e:
-
-    logger.warning(
-        f"selectolax unavailable => {e}"
-    )
+    print(f"❌ BS4 IMPORT ERROR => {e}")
 
 # =========================================================
 # PLAYWRIGHT
@@ -201,11 +162,11 @@ try:
 
     PLAYWRIGHT_AVAILABLE = True
 
+    print("✅ PLAYWRIGHT IMPORTED")
+
 except Exception as e:
 
-    logger.warning(
-        f"playwright unavailable => {e}"
-    )
+    print(f"❌ PLAYWRIGHT IMPORT ERROR => {e}")
 
 # =========================================================
 # PLAYWRIGHT STEALTH
@@ -217,45 +178,11 @@ try:
 
     STEALTH_AVAILABLE = True
 
-except Exception as e:
-
-    logger.warning(
-        f"playwright stealth unavailable => {e}"
-    )
-
-# =========================================================
-# CURL_CFFI
-# =========================================================
-
-try:
-
-    from curl_cffi.requests import (
-        Session as CurlSession
-    )
-
-    CURL_AVAILABLE = True
+    print("✅ PLAYWRIGHT STEALTH IMPORTED")
 
 except Exception as e:
 
-    logger.warning(
-        f"curl_cffi unavailable => {e}"
-    )
-
-# =========================================================
-# CRAWL4AI
-# =========================================================
-
-try:
-
-    from crawl4ai import AsyncWebCrawler
-
-    CRAWL4AI_AVAILABLE = True
-
-except Exception as e:
-
-    logger.warning(
-        f"crawl4ai unavailable => {e}"
-    )
+    print(f"❌ STEALTH IMPORT ERROR => {e}")
 
 # =========================================================
 # FAKE USER AGENT
@@ -271,9 +198,7 @@ try:
 
 except Exception as e:
 
-    logger.warning(
-        f"fake-useragent unavailable => {e}"
-    )
+    print(f"❌ FAKE USER AGENT ERROR => {e}")
 
     fake_ua = None
 
@@ -314,8 +239,8 @@ def get_user_agent():
 # =========================================================
 
 async def human_delay(
-    minimum=1,
-    maximum=3
+    minimum=3,
+    maximum=8
 ):
 
     await asyncio.sleep(
@@ -352,7 +277,7 @@ def generate_review_id(
     ).hexdigest()
 
 # =========================================================
-# EMPTY RESULT RETRY VALIDATOR
+# VALIDATE RESULT
 # =========================================================
 
 def validate_reviews_result(
@@ -367,53 +292,6 @@ def validate_reviews_result(
         )
 
     return reviews
-
-# =========================================================
-# SIMPLE SENTIMENT
-# =========================================================
-
-def simple_sentiment(
-    text: str
-):
-
-    text = str(text).lower()
-
-    positive_words = [
-        "good",
-        "great",
-        "excellent",
-        "awesome",
-        "love",
-        "perfect",
-    ]
-
-    negative_words = [
-        "bad",
-        "terrible",
-        "worst",
-        "awful",
-        "poor",
-    ]
-
-    positive = sum(
-        1 for word in positive_words
-        if word in text
-    )
-
-    negative = sum(
-        1 for word in negative_words
-        if word in text
-    )
-
-    if positive > negative:
-
-        return "positive"
-
-    if negative > positive:
-
-        return "negative"
-
-    return "neutral"
 
 # =========================================================
 # NORMALIZE REVIEW
@@ -461,10 +339,6 @@ def normalize_review(
         ) or 5
     )
 
-    sentiment = simple_sentiment(
-        review_text
-    )
-
     return {
 
         "google_review_id":
@@ -492,19 +366,8 @@ def normalize_review(
         "text":
             review_text,
 
-        "sentiment":
-            sentiment,
-
         "sentiment_score":
-            0.85 if sentiment == "positive"
-            else 0.15 if sentiment == "negative"
-            else 0.50,
-
-        "source":
-            review.get(
-                "source",
-                "Google"
-            ),
+            0.50,
 
         "google_review_time":
             utc_now(),
@@ -550,7 +413,7 @@ def deduplicate_reviews(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_random_exponential(
         min=2,
-        max=15
+        max=20
     ),
     reraise=True
 )
@@ -558,9 +421,7 @@ def serpapi_reviews(
     place_id: str
 ):
 
-    logger.info(
-        "🚀 SERPAPI STARTED"
-    )
+    print("🔥 SERPAPI STARTED")
 
     reviews = []
 
@@ -568,57 +429,29 @@ def serpapi_reviews(
 
         return reviews
 
-    if not SERPAPI_KEY:
-
-        logger.warning(
-            "❌ SERPAPI KEY MISSING"
-        )
-
-        return reviews
-
     try:
-
-        params = {
-
-            "engine":
-                "google_maps_reviews",
-
-            "place_id":
-                place_id,
-
-            "api_key":
-                SERPAPI_KEY,
-
-            "hl":
-                "en"
-        }
 
         response = requests.get(
 
             "https://serpapi.com/search.json",
 
-            params=params,
+            params={
 
-            proxies={
+                "engine":
+                    "google_maps_reviews",
 
-                "http":
-                    PROXY_URL,
+                "place_id":
+                    place_id,
 
-                "https":
-                    PROXY_URL
+                "api_key":
+                    SERPAPI_KEY,
 
-            } if PROXY_URL else None,
-
-            headers={
-
-                "User-Agent":
-                    get_user_agent()
+                "hl":
+                    "en"
             },
 
             timeout=SCRAPER_TIMEOUT
         )
-
-        response.raise_for_status()
 
         data = response.json()
 
@@ -627,8 +460,8 @@ def serpapi_reviews(
             []
         )
 
-        logger.info(
-            f"SERPAPI RAW REVIEWS => {len(raw_reviews)}"
+        print(
+            f"🔥 SERPAPI RAW => {len(raw_reviews)}"
         )
 
         for item in raw_reviews:
@@ -651,10 +484,7 @@ def serpapi_reviews(
                     item.get(
                         "snippet",
                         ""
-                    ),
-
-                "source":
-                    "SERPAPI"
+                    )
 
             }, place_id)
 
@@ -669,13 +499,11 @@ def serpapi_reviews(
 
     except Exception as e:
 
-        logger.error(
-            f"❌ SERPAPI ERROR => {e}"
-        )
+        print(f"❌ SERPAPI ERROR => {e}")
 
         raise
 
-    logger.info(
+    print(
         f"✅ SERPAPI REVIEWS => {len(reviews)}"
     )
 
@@ -697,385 +525,400 @@ async def playwright_reviews(
     place_id: str
 ):
 
-    logger.info(
-        "🚀 PLAYWRIGHT STARTED"
-    )
+    print("🔥 PLAYWRIGHT STARTED")
 
     reviews = []
 
-    if not ENABLE_PLAYWRIGHT:
-
-        return reviews
-
     if not PLAYWRIGHT_AVAILABLE:
+
+        print("❌ PLAYWRIGHT NOT AVAILABLE")
 
         return reviews
 
     browser = None
 
-    for attempt in range(3):
+    try:
 
-        try:
+        async with async_playwright() as p:
 
-            logger.info(
-                f"PLAYWRIGHT ATTEMPT => {attempt + 1}"
+            browser = await p.chromium.launch(
+
+                headless=True,
+
+                proxy={
+
+                    "server":
+                        f"http://{PROXY_SERVER}",
+
+                    "username":
+                        PROXY_USERNAME,
+
+                    "password":
+                        PROXY_PASSWORD
+                },
+
+                args=[
+
+                    "--no-sandbox",
+
+                    "--disable-setuid-sandbox",
+
+                    "--disable-dev-shm-usage",
+
+                    "--disable-gpu",
+
+                    "--single-process",
+
+                    "--disable-background-networking",
+
+                    "--window-size=1920,1080"
+                ]
             )
 
-            async with async_playwright() as p:
+            context = await browser.new_context(
 
-                browser = await p.chromium.launch(
+                user_agent=get_user_agent(),
 
-                    headless=True,
+                locale="en-US",
 
-                    proxy={
+                viewport={
 
-                        "server":
-                            f"http://{PROXY_SERVER}",
+                    "width": 1920,
 
-                        "username":
-                            PROXY_USERNAME,
+                    "height": 1080
+                }
+            )
 
-                        "password":
-                            PROXY_PASSWORD
-                    },
+            page = await context.new_page()
 
-                    args=[
+            if STEALTH_AVAILABLE:
 
-                        "--no-sandbox",
+                await stealth_async(page)
 
-                        "--disable-setuid-sandbox",
+            target_url = maps_url(
+                place_id
+            )
 
-                        "--disable-dev-shm-usage",
+            print(
+                f"🔥 TARGET URL => {target_url}"
+            )
 
-                        "--disable-gpu",
+            await page.goto(
 
-                        "--disable-extensions",
+                target_url,
 
-                        "--disable-background-networking",
+                wait_until="domcontentloaded",
 
-                        "--single-process",
+                timeout=180000
+            )
 
-                        "--window-size=1920,1080"
-                    ]
+            print(
+                f"🔥 PAGE URL => {page.url}"
+            )
+
+            print(
+                "🔥 WAITING FOR GOOGLE RENDER"
+            )
+
+            await human_delay(
+                10,
+                20
+            )
+
+            review_button_selectors = [
+
+                'button[jsaction*="pane.reviewChart.moreReviews"]',
+
+                'button[aria-label*="reviews"]',
+
+                'button[aria-label*="Reviews"]'
+            ]
+
+            clicked = False
+
+            for selector in review_button_selectors:
+
+                try:
+
+                    button = page.locator(
+                        selector
+                    ).first
+
+                    await button.click()
+
+                    clicked = True
+
+                    print(
+                        f"✅ CLICKED => {selector}"
+                    )
+
+                    break
+
+                except Exception:
+
+                    continue
+
+            if not clicked:
+
+                print(
+                    "⚠️ REVIEW BUTTON NOT FOUND"
                 )
 
-                context = await browser.new_context(
+            await human_delay(
+                10,
+                20
+            )
 
-                    user_agent=get_user_agent(),
+            start_time = time.time()
 
-                    locale="en-US",
+            last_review_count = 0
 
-                    viewport={
+            stable_rounds = 0
 
-                        "width": 1920,
+            all_review_blocks = []
 
-                        "height": 1080
-                    }
+            while True:
+
+                elapsed = time.time() - start_time
+
+                if elapsed > 120:
+
+                    print(
+                        "⏰ MAX SCRAPER TIME REACHED"
+                    )
+
+                    break
+
+                scroll_amount = random.randint(
+                    5000,
+                    15000
                 )
 
-                page = await context.new_page()
-
-                if STEALTH_AVAILABLE:
-
-                    await stealth_async(page)
-
-                await page.goto(
-
-                    maps_url(place_id),
-
-                    wait_until="domcontentloaded",
-
-                    timeout=120000
+                await page.mouse.wheel(
+                    0,
+                    scroll_amount
                 )
 
-                logger.info(
-                    "⌛ WAITING FOR GOOGLE REVIEWS"
+                print(
+                    f"🖱️ SCROLL => {scroll_amount}"
                 )
 
-                await human_delay(8, 15)
+                await human_delay(
+                    5,
+                    10
+                )
+
+                html = await page.content()
+
+                print(
+                    f"🔥 HTML LENGTH => {len(html)}"
+                )
+
+                soup = BeautifulSoup(
+                    html,
+                    "html.parser"
+                )
 
                 selectors = [
 
-                    'button[jsaction*="pane.reviewChart.moreReviews"]',
+                    "div.jftiEf",
 
-                    'button[aria-label*="reviews"]',
+                    "div[data-review-id]",
 
-                    'button[aria-label*="Reviews"]'
+                    ".wiI7pd",
+
+                    ".MyEned",
+
+                    "div.section-review-content"
                 ]
+
+                current_blocks = []
 
                 for selector in selectors:
 
                     try:
 
-                        button = page.locator(
+                        blocks = soup.select(
                             selector
-                        ).first
-
-                        await button.click()
-
-                        logger.info(
-                            f"✅ CLICKED => {selector}"
                         )
 
-                        break
+                        if blocks:
 
-                    except Exception:
-
-                        pass
-
-                start_time = time.time()
-
-                last_review_count = 0
-
-                stable_rounds = 0
-
-                all_review_blocks = []
-
-                while True:
-
-                    elapsed = time.time() - start_time
-
-                    if elapsed > 60:
-
-                        logger.info(
-                            "⏰ MAX SCROLL TIME REACHED"
-                        )
-
-                        break
-
-                    scroll_amount = random.randint(
-                        4000,
-                        12000
-                    )
-
-                    await page.mouse.wheel(
-                        0,
-                        scroll_amount
-                    )
-
-                    logger.info(
-                        f"🖱️ SCROLL => {scroll_amount}"
-                    )
-
-                    await human_delay(
-                        2,
-                        5
-                    )
-
-                    html = await page.content()
-
-                    soup = BeautifulSoup(
-                        html,
-                        "html.parser"
-                    )
-
-                    selectors = [
-
-                        "div.jftiEf",
-
-                        "div[data-review-id]",
-
-                        ".wiI7pd",
-
-                        ".MyEned",
-
-                        "div.section-review-content",
-
-                        "div.review-dialog-list"
-                    ]
-
-                    current_blocks = []
-
-                    for selector in selectors:
-
-                        try:
-
-                            blocks = soup.select(
-                                selector
+                            print(
+                                f"✅ SELECTOR WORKED => {selector}"
                             )
 
-                            if blocks:
-
-                                logger.info(
-                                    f"✅ SELECTOR => {selector}"
-                                )
-
-                                current_blocks.extend(
-                                    blocks
-                                )
-
-                        except Exception as selector_error:
-
-                            logger.warning(
-                                f"⚠️ SELECTOR ERROR => {selector_error}"
+                            current_blocks.extend(
+                                blocks
                             )
 
-                    unique_html = set()
+                    except Exception as selector_error:
 
-                    deduped_blocks = []
-
-                    for block in current_blocks:
-
-                        block_html = str(block)
-
-                        if block_html in unique_html:
-
-                            continue
-
-                        unique_html.add(block_html)
-
-                        deduped_blocks.append(block)
-
-                    current_count = len(
-                        deduped_blocks
-                    )
-
-                    logger.info(
-                        f"📊 LIVE REVIEW BLOCKS => {current_count}"
-                    )
-
-                    if current_count == last_review_count:
-
-                        stable_rounds += 1
-
-                        logger.info(
-                            f"⚠️ NO NEW REVIEWS => {stable_rounds}"
+                        print(
+                            f"❌ SELECTOR ERROR => {selector_error}"
                         )
 
-                    else:
+                unique_html = set()
 
-                        stable_rounds = 0
+                deduped_blocks = []
 
-                    last_review_count = current_count
+                for block in current_blocks:
 
-                    all_review_blocks = deduped_blocks
+                    block_html = str(block)
 
-                    if stable_rounds >= 5:
+                    if block_html in unique_html:
 
-                        logger.info(
-                            "🛑 NO MORE REVIEWS LOADING"
-                        )
+                        continue
 
-                        break
+                    unique_html.add(block_html)
 
-                    if current_count >= MAX_REVIEWS:
+                    deduped_blocks.append(block)
 
-                        logger.info(
-                            f"🎯 TARGET REACHED => {current_count}"
-                        )
-
-                        break
-
-                review_blocks = all_review_blocks
-
-                logger.info(
-                    f"✅ FINAL PLAYWRIGHT BLOCKS => {len(review_blocks)}"
+                current_count = len(
+                    deduped_blocks
                 )
 
-                for block in review_blocks:
-
-                    try:
-
-                        author = "Anonymous"
-                        rating = 5
-                        review_text = ""
-
-                        author_element = block.select_one(
-                            ".d4r55"
-                        )
-
-                        if author_element:
-
-                            author = author_element.text.strip()
-
-                        review_element = block.select_one(
-                            ".wiI7pd"
-                        )
-
-                        if review_element:
-
-                            review_text = review_element.text.strip()
-
-                        rating_element = block.select_one(
-                            "span.kvMYJc"
-                        )
-
-                        if rating_element:
-
-                            aria = rating_element.get(
-                                "aria-label",
-                                ""
-                            )
-
-                            match = re.search(
-                                r"(\d)",
-                                aria
-                            )
-
-                            if match:
-
-                                rating = int(
-                                    match.group(1)
-                                )
-
-                        review = normalize_review({
-
-                            "author":
-                                author,
-
-                            "rating":
-                                rating,
-
-                            "review_text":
-                                review_text,
-
-                            "source":
-                                "PLAYWRIGHT"
-
-                        }, place_id)
-
-                        if review:
-
-                            reviews.append(review)
-
-                    except Exception as parse_error:
-
-                        logger.error(
-                            f"❌ PLAYWRIGHT PARSE ERROR => {parse_error}"
-                        )
-
-                validate_reviews_result(
-                    reviews,
-                    "PLAYWRIGHT"
+                print(
+                    f"🔥 LIVE REVIEW BLOCKS => {current_count}"
                 )
+
+                if current_count == last_review_count:
+
+                    stable_rounds += 1
+
+                    print(
+                        f"⚠️ NO NEW REVIEWS => {stable_rounds}"
+                    )
+
+                else:
+
+                    stable_rounds = 0
+
+                last_review_count = current_count
+
+                all_review_blocks = deduped_blocks
+
+                if stable_rounds >= 15:
+
+                    print(
+                        "🛑 REVIEW COUNT STABLE"
+                    )
+
+                    break
+
+                if current_count >= MAX_REVIEWS:
+
+                    print(
+                        f"🎯 TARGET REACHED => {current_count}"
+                    )
+
+                    break
+
+            review_blocks = all_review_blocks
+
+            print(
+                f"🔥 FINAL BLOCKS => {len(review_blocks)}"
+            )
+
+            for block in review_blocks:
+
+                try:
+
+                    author = "Anonymous"
+
+                    rating = 5
+
+                    review_text = ""
+
+                    author_element = block.select_one(
+                        ".d4r55"
+                    )
+
+                    if author_element:
+
+                        author = author_element.text.strip()
+
+                    review_element = block.select_one(
+                        ".wiI7pd"
+                    )
+
+                    if review_element:
+
+                        review_text = review_element.text.strip()
+
+                    rating_element = block.select_one(
+                        "span.kvMYJc"
+                    )
+
+                    if rating_element:
+
+                        aria = rating_element.get(
+                            "aria-label",
+                            ""
+                        )
+
+                        match = re.search(
+                            r"(\d)",
+                            aria
+                        )
+
+                        if match:
+
+                            rating = int(
+                                match.group(1)
+                            )
+
+                    review = normalize_review({
+
+                        "author":
+                            author,
+
+                        "rating":
+                            rating,
+
+                        "review_text":
+                            review_text
+
+                    }, place_id)
+
+                    if review:
+
+                        reviews.append(review)
+
+                except Exception as parse_error:
+
+                    print(
+                        f"❌ PARSE ERROR => {parse_error}"
+                    )
+
+            validate_reviews_result(
+                reviews,
+                "PLAYWRIGHT"
+            )
+
+    except Exception as e:
+
+        print(
+            f"❌ PLAYWRIGHT ERROR => {e}"
+        )
+
+        print(
+            traceback.format_exc()
+        )
+
+    finally:
+
+        try:
+
+            if browser:
 
                 await browser.close()
 
-                break
+        except Exception:
 
-        except Exception as e:
+            pass
 
-            logger.error(
-                f"❌ PLAYWRIGHT ERROR => {e}"
-            )
-
-            logger.error(
-                traceback.format_exc()
-            )
-
-            await human_delay(10, 20)
-
-            try:
-
-                if browser:
-
-                    await browser.close()
-
-            except Exception:
-
-                pass
-
-    logger.info(
+    print(
         f"✅ PLAYWRIGHT REVIEWS => {len(reviews)}"
     )
 
@@ -1089,15 +932,13 @@ async def scrape_google_reviews(
     place_id: str
 ):
 
-    logger.info(
-        f"🚀 MASTER SCRAPER STARTED => {place_id}"
+    print(
+        f"🔥 MASTER SCRAPER STARTED => {place_id}"
     )
 
     if not place_id:
 
-        logger.error(
-            "❌ INVALID PLACE ID"
-        )
+        print("❌ INVALID PLACE ID")
 
         return []
 
@@ -1105,24 +946,17 @@ async def scrape_google_reviews(
 
     try:
 
-        tasks = []
+        tasks = [
 
-        if ENABLE_SERPAPI:
+            asyncio.to_thread(
+                serpapi_reviews,
+                place_id
+            ),
 
-            tasks.append(
-                asyncio.to_thread(
-                    serpapi_reviews,
-                    place_id
-                )
+            playwright_reviews(
+                place_id
             )
-
-        if ENABLE_PLAYWRIGHT:
-
-            tasks.append(
-                playwright_reviews(
-                    place_id
-                )
-            )
+        ]
 
         results = await asyncio.gather(
 
@@ -1131,15 +965,15 @@ async def scrape_google_reviews(
             return_exceptions=True
         )
 
-        logger.info(
-            f"PROVIDER RESULTS => {results}"
+        print(
+            f"🔥 PROVIDER RESULTS => {results}"
         )
 
         for result in results:
 
             if isinstance(result, Exception):
 
-                logger.error(
+                print(
                     f"❌ PROVIDER FAILED => {result}"
                 )
 
@@ -1159,7 +993,7 @@ async def scrape_google_reviews(
 
             all_reviews = all_reviews[:MAX_REVIEWS]
 
-        logger.info(
+        print(
             f"✅ FINAL UNIQUE REVIEWS => {len(all_reviews)}"
         )
 
@@ -1167,11 +1001,11 @@ async def scrape_google_reviews(
 
     except Exception as e:
 
-        logger.error(
+        print(
             f"❌ MASTER SCRAPER ERROR => {e}"
         )
 
-        logger.error(
+        print(
             traceback.format_exc()
         )
 
