@@ -301,44 +301,22 @@ async def get_company_reviews(
         )
 
 # =========================================================
+# =========================================================
 # SYNC REVIEWS
 # =========================================================
 
 @router.post("/sync/{company_id}")
-async def sync_reviews(
+@router.post("/sync/{company_id}/")
+async def sync_reviews(company_id: int):
 
-    company_id: int,
+    return {
 
-    background_tasks: BackgroundTasks,
+        "success": True,
 
-    force_refresh: bool = False,
+        "message": "POST ROUTE WORKING",
 
-    db: Session = Depends(get_db)
-):
-
-    try:
-
-        logger.info(
-            f"🚀 SYNC REQUEST RECEIVED => {company_id}"
-        )
-
-        # =================================================
-        # COMPANY VALIDATION
-        # =================================================
-
-        company = db.query(Company).filter(
-            Company.id == company_id
-        ).first()
-
-        if not company:
-
-            raise HTTPException(
-
-                status_code=404,
-
-                detail="Company not found"
-            )
-
+        "company_id": company_id
+    }
         # =================================================
         # SCRAPER VALIDATION
         # =================================================
