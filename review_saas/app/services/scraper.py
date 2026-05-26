@@ -1,7 +1,6 @@
 # =========================================================
 # FILE: app/scraper.py
-# TRUSTLYTICS AI - ULTRA ENTERPRISE SCRAPER
-# 2026 WORLD CLASS EDITION
+# TRUSTLYTICS AI - SAFE ASYNC GOOGLE REVIEWS SCRAPER
 # =========================================================
 
 import os
@@ -11,149 +10,176 @@ import asyncio
 import logging
 import traceback
 import random
+import hashlib
 
 from datetime import datetime
-from typing import List, Dict, Any
-
-# =========================================================
-# LOGGER
-# =========================================================
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
-
 logger.setLevel(logging.INFO)
 
 # =========================================================
-# PROXY CONFIG
+# CONFIG
 # =========================================================
 
-PROXY_USERNAME = "f24ab799ffcf42cf2c54"
+SERPAPI_KEY = os.getenv("SERPAPI_KEY", "").strip()
 
-PROXY_PASSWORD = "e25628cf2c1b3ba3"
+PROXY_USERNAME = os.getenv("PROXY_USERNAME", "").strip()
+PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "").strip()
+PROXY_SERVER = os.getenv("PROXY_SERVER", "").strip()
 
-PROXY_SERVER = "gw.dataimpulse.com:823"
+MAX_REVIEWS = int(os.getenv("SCRAPER_MAX_REVIEWS", "100"))
+ENABLE_PLAYWRIGHT = os.getenv("ENABLE_PLAYWRIGHT_SCRAPER", "true").lower() == "true"
+ENABLE_CURL = os.getenv("ENABLE_CURL_SCRAPER", "true").lower() == "true"
+ENABLE_CRAWL4AI = os.getenv("ENABLE_CRAWL4AI_SCRAPER", "false").lower() == "true"
 
-# =========================================================
-# PROXY URL
-# =========================================================
+PROXY_URL = ""
 
-PROXY_URL = (
-    f"http://{PROXY_USERNAME}:"
-    f"{PROXY_PASSWORD}@"
-    f"{PROXY_SERVER}"
-)
-
-# =========================================================
-# SERPAPI
-# =========================================================
-
-SERPAPI_KEY = os.getenv(
-    "SERPAPI_KEY",
-    ""
-)
+if PROXY_USERNAME and PROXY_PASSWORD and PROXY_SERVER:
+    PROXY_URL = f"http://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_SERVER}"
 
 # =========================================================
-# PLAYWRIGHT
+# OPTIONAL IMPORTS
 # =========================================================
 
-from playwright.async_api import (
-    async_playwright,
-    TimeoutError as PlaywrightTimeout
-)
-
-from playwright_stealth import stealth_async
-
-# =========================================================
-# PARSERS
-# =========================================================
-
-from bs4 import BeautifulSoup
-
-from lxml import html
-
-from selectolax.parser import HTMLParser
-
-# =========================================================
-# USER AGENT
-# =========================================================
-
-from fake_useragent import UserAgent
-
-ua = UserAgent()
-
-# =========================================================
-# RETRY
-# =========================================================
-
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential
-)
-
-import backoff
-
-# =========================================================
-# FILE SUPPORT
-# =========================================================
-
-import aiofiles
-
-import aiosqlite
-
-# =========================================================
-# CURL_CFFI
-# =========================================================
-
-from curl_cffi.requests import Session
-
-# =========================================================
-# OPTIONAL CRAWL4AI
-# =========================================================
-
+REQUESTS_AVAILABLE = False
+PLAYWRIGHT_AVAILABLE = False
+STEALTH_AVAILABLE = False
+BS4_AVAILABLE = False
+SELECTOLAX_AVAILABLE = False
+CURL_CFFI_AVAILABLE = False
 CRAWL4AI_AVAILABLE = False
+FAKE_UA_AVAILABLE = False
 
 try:
+    import requests
 
+    REQUESTS_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"requests unavailable => {e}")
+
+try:
+    from bs4 import BeautifulSoup
+
+    BS4_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"bs4 unavailable => {e}")
+
+try:
+    from selectolax.parser import HTMLParser
+
+    SELECTOLAX_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"selectolax unavailable => {e}")
+
+try:
+    from playwright.async_api import async_playwright
+
+    PLAYWRIGHT_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"playwright unavailable => {e}")
+
+try:
+    from playwright_stealth import stealth_async
+
+    STEALTH_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"playwright_stealth unavailable => {e}")
+
+try:
+    from curl_cffi.requests import Session as CurlSession
+
+    CURL_CFFI_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"curl_cffi unavailable => {e}")
+
+try:
     from crawl4ai import AsyncWebCrawler
 
     CRAWL4AI_AVAILABLE = True
-
-    logger.info(
-        "✅ CRAWL4AI AVAILABLE"
-    )
-
 except Exception as e:
+    logger.warning(f"crawl4ai unavailable => {e}")
 
-    logger.warning(
-        f"❌ CRAWL4AI NOT AVAILABLE => {e}"
+try:
+    from fake_useragent import UserAgent
+
+    fake_ua = UserAgent()
+    FAKE_UA_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"fake_useragent unavailable => {e}")
+    fake_ua = None
+
+# =========================================================
+# HELPERS
+# =========================================================
+
+def get_user_agent() -> str:
+    if FAKE_UA_AVAILABLE and fake_ua:
+        try:
+            return fake_ua.random
+        except Exception:
+            pass
+
+    return (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
     )
 
-# =========================================================
-# HUMAN DELAY
-# =========================================================
 
 async def human_delay(
-    minimum: float = 1.0,
-    maximum: float = 3.0
+    minimum: float = 0.8,
+    maximum: float = 2.0,
 ):
+    await asyncio.sleep(random.uniform(minimum, maximum))
 
-    await asyncio.sleep(
-        random.uniform(minimum, maximum)
-    )
 
-# =========================================================
-# SENTIMENT
-# =========================================================
+def safe_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
 
-def simple_sentiment(
-    text: str
-):
+    return str(value).strip()
 
-    text = text.lower()
+
+def safe_rating(value: Any, default: int = 5) -> int:
+    try:
+        rating = int(float(value))
+    except Exception:
+        rating = default
+
+    if rating < 1:
+        rating = 1
+
+    if rating > 5:
+        rating = 5
+
+    return rating
+
+
+def stable_review_id(
+    place_id: str,
+    author: str,
+    review_text: str,
+) -> str:
+    raw = f"{place_id}:{author}:{review_text}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def parse_rating_from_text(text: str) -> int:
+    text = safe_str(text)
+
+    match = re.search(r"([1-5])", text)
+
+    if not match:
+        return 5
+
+    return safe_rating(match.group(1), 5)
+
+
+def simple_sentiment(text: str) -> str:
+    text = safe_str(text).lower()
 
     positive_words = [
-
         "good",
         "great",
         "excellent",
@@ -162,11 +188,15 @@ def simple_sentiment(
         "amazing",
         "awesome",
         "best",
-        "fantastic"
+        "fantastic",
+        "nice",
+        "friendly",
+        "clean",
+        "helpful",
+        "recommended",
     ]
 
     negative_words = [
-
         "bad",
         "worst",
         "terrible",
@@ -174,219 +204,174 @@ def simple_sentiment(
         "hate",
         "poor",
         "dirty",
-        "rude"
+        "rude",
+        "slow",
+        "late",
+        "expensive",
+        "disappointed",
+        "unprofessional",
     ]
 
-    positive_score = sum(
-        1 for word in positive_words
-        if word in text
-    )
-
-    negative_score = sum(
-        1 for word in negative_words
-        if word in text
-    )
+    positive_score = sum(1 for word in positive_words if word in text)
+    negative_score = sum(1 for word in negative_words if word in text)
 
     if positive_score > negative_score:
-
         return "positive"
 
     if negative_score > positive_score:
-
         return "negative"
 
     return "neutral"
 
-# =========================================================
-# NORMALIZE REVIEW
-# =========================================================
 
 def normalize_review(
-    review: Dict[str, Any]
-):
-
-    review_text = str(
-        review.get(
-            "review_text",
-            ""
-        )
-    ).strip()
-
-    if not review_text:
-
-        return {}
-
-    author = str(
-        review.get(
-            "author",
-            "Anonymous"
-        )
-    ).strip()
-
-    rating = int(
-        review.get(
-            "rating",
-            5
-        ) or 5
+    review: Dict[str, Any],
+    place_id: str = "",
+) -> Dict[str, Any]:
+    review_text = safe_str(
+        review.get("review_text")
+        or review.get("text")
+        or review.get("content")
+        or review.get("snippet")
     )
 
+    if not review_text:
+        return {}
+
+    author = safe_str(
+        review.get("author")
+        or review.get("author_name")
+        or review.get("user")
+        or review.get("name"),
+        "Anonymous",
+    )
+
+    if not author:
+        author = "Anonymous"
+
+    rating = safe_rating(
+        review.get("rating")
+        or review.get("stars")
+        or review.get("score"),
+        5,
+    )
+
+    review_id = safe_str(
+        review.get("google_review_id")
+        or review.get("review_id")
+        or review.get("id")
+    )
+
+    if not review_id:
+        review_id = stable_review_id(
+            place_id=place_id,
+            author=author,
+            review_text=review_text,
+        )
+
     return {
-
+        "google_review_id": review_id,
         "author": author,
-
+        "author_name": author,
         "rating": rating,
-
         "review_text": review_text,
-
-        "sentiment": simple_sentiment(
-            review_text
-        ),
-
-        "source": review.get(
-            "source",
-            "Google"
-        ),
-
-        "review_date":
-            datetime.utcnow()
+        "content": review_text,
+        "text": review_text,
+        "sentiment": simple_sentiment(review_text),
+        "sentiment_score": 0.5,
+        "source": safe_str(review.get("source"), "Google"),
+        "google_review_time": review.get("google_review_time") or datetime.utcnow(),
+        "review_date": review.get("review_date") or datetime.utcnow(),
     }
 
-# =========================================================
-# DEDUPLICATION
-# =========================================================
 
 def deduplicate_reviews(
-    reviews: List[Dict]
-):
-
+    reviews: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     unique_reviews = []
-
     seen = set()
 
     for review in reviews:
+        review_text = safe_str(review.get("review_text"))
+        author = safe_str(review.get("author"))
 
-        text = review.get(
-            "review_text",
-            ""
-        ).strip()
+        if not review_text:
+            continue
 
-        author = review.get(
-            "author",
-            ""
-        ).strip()
-
-        key = f"{author}_{text}"
+        key = f"{author.lower()}:{review_text.lower()}"
 
         if key in seen:
-
             continue
 
         seen.add(key)
-
         unique_reviews.append(review)
 
     return unique_reviews
 
-# =========================================================
-# SERPAPI PRIMARY
-# =========================================================
 
-@backoff.on_exception(
-    backoff.expo,
-    Exception,
-    max_tries=3
-)
+def google_maps_url(place_id: str) -> str:
+    return f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+
+# =========================================================
+# SERPAPI SCRAPER
+# =========================================================
 
 def serpapi_reviews(
-    place_id: str
-):
-
-    logger.info(
-        "🚀 SERPAPI STARTED"
-    )
+    place_id: str,
+) -> List[Dict[str, Any]]:
+    logger.info("SERPAPI STARTED")
 
     reviews = []
 
     if not SERPAPI_KEY:
+        logger.warning("SERPAPI_KEY missing")
+        return reviews
 
-        logger.warning(
-            "❌ SERPAPI KEY MISSING"
-        )
-
+    if not REQUESTS_AVAILABLE:
+        logger.warning("requests package missing")
         return reviews
 
     try:
-
-        import requests
+        params = {
+            "engine": "google_maps_reviews",
+            "place_id": place_id,
+            "api_key": SERPAPI_KEY,
+            "hl": "en",
+        }
 
         response = requests.get(
-
             "https://serpapi.com/search.json",
-
-            params={
-
-                "engine":
-                    "google_maps_reviews",
-
-                "place_id":
-                    place_id,
-
-                "api_key":
-                    SERPAPI_KEY,
-
-                "hl":
-                    "en"
-            },
-
-            timeout=120
+            params=params,
+            timeout=60,
         )
+
+        response.raise_for_status()
 
         data = response.json()
 
-        raw_reviews = data.get(
-            "reviews",
-            []
-        )
+        raw_reviews = data.get("reviews", [])
 
         for item in raw_reviews:
-
-            review = normalize_review({
-
-                "author":
-                    item.get(
-                        "user",
-                        "SERPAPI User"
-                    ),
-
-                "rating":
-                    item.get(
-                        "rating",
-                        5
-                    ),
-
-                "review_text":
-                    item.get(
-                        "snippet",
-                        ""
-                    ),
-
-                "source":
-                    "SERPAPI"
-            })
+            review = normalize_review(
+                {
+                    "google_review_id": item.get("review_id") or item.get("id"),
+                    "author": item.get("user") or item.get("name"),
+                    "rating": item.get("rating"),
+                    "review_text": item.get("snippet") or item.get("text"),
+                    "google_review_time": item.get("date"),
+                    "source": "SERPAPI",
+                },
+                place_id=place_id,
+            )
 
             if review:
-
                 reviews.append(review)
 
-        logger.info(
-            f"✅ SERPAPI REVIEWS => {len(reviews)}"
-        )
+        logger.info(f"SERPAPI REVIEWS => {len(reviews)}")
 
     except Exception as e:
-
-        logger.error(
-            f"❌ SERPAPI ERROR => {e}"
-        )
+        logger.error(f"SERPAPI ERROR => {e}")
+        logger.error(traceback.format_exc())
 
     return reviews
 
@@ -394,392 +379,302 @@ def serpapi_reviews(
 # PLAYWRIGHT SCRAPER
 # =========================================================
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=2)
-)
-
 async def playwright_reviews(
-    place_id: str
-):
-
-    logger.info(
-        "🚀 PLAYWRIGHT STARTED"
-    )
+    place_id: str,
+) -> List[Dict[str, Any]]:
+    logger.info("PLAYWRIGHT STARTED")
 
     reviews = []
 
-    async with async_playwright() as p:
+    if not ENABLE_PLAYWRIGHT:
+        logger.info("PLAYWRIGHT disabled")
+        return reviews
 
-        browser = await p.chromium.launch(
+    if not PLAYWRIGHT_AVAILABLE:
+        logger.warning("playwright package missing")
+        return reviews
 
-            headless=True,
+    if not BS4_AVAILABLE:
+        logger.warning("bs4 package missing")
+        return reviews
 
-            proxy={
+    browser = None
 
-                "server":
-                    f"http://{PROXY_SERVER}",
+    try:
+        async with async_playwright() as p:
+            launch_options = {
+                "headless": True,
+                "args": [
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-infobars",
+                    "--window-size=1920,1080",
+                ],
+            }
 
-                "username":
-                    PROXY_USERNAME,
+            if PROXY_SERVER:
+                launch_options["proxy"] = {
+                    "server": f"http://{PROXY_SERVER}",
+                }
 
-                "password":
-                    PROXY_PASSWORD
-            },
+                if PROXY_USERNAME and PROXY_PASSWORD:
+                    launch_options["proxy"]["username"] = PROXY_USERNAME
+                    launch_options["proxy"]["password"] = PROXY_PASSWORD
 
-            args=[
+            browser = await p.chromium.launch(**launch_options)
 
-                "--disable-blink-features=AutomationControlled",
+            context = await browser.new_context(
+                user_agent=get_user_agent(),
+                viewport={
+                    "width": 1920,
+                    "height": 1080,
+                },
+                locale="en-US",
+            )
 
-                "--disable-dev-shm-usage",
+            page = await context.new_page()
 
-                "--no-sandbox",
+            if STEALTH_AVAILABLE:
+                try:
+                    await stealth_async(page)
+                except Exception as stealth_error:
+                    logger.warning(f"stealth failed => {stealth_error}")
 
-                "--disable-setuid-sandbox",
+            url = google_maps_url(place_id)
 
-                "--disable-infobars",
+            logger.info(f"OPENING => {url}")
 
-                "--window-size=1920,1080"
+            await page.goto(
+                url,
+                timeout=90000,
+                wait_until="domcontentloaded",
+            )
+
+            await human_delay(3, 5)
+
+            review_button_selectors = [
+                'button[jsaction*="pane.reviewChart.moreReviews"]',
+                'button[aria-label*="reviews"]',
+                'button:has-text("reviews")',
+                'button:has-text("Reviews")',
             ]
-        )
 
-        context = await browser.new_context(
+            for selector in review_button_selectors:
+                try:
+                    button = page.locator(selector).first()
 
-            user_agent=ua.random,
+                    if await button.count() > 0:
+                        await button.click(timeout=5000)
+                        logger.info(f"review button clicked => {selector}")
+                        await human_delay(2, 4)
+                        break
 
-            viewport={
+                except Exception:
+                    continue
 
-                "width": 1920,
+            for _ in range(25):
+                await page.mouse.wheel(0, 8000)
+                await human_delay(0.5, 1.2)
 
-                "height": 1080
-            },
+            html_content = await page.content()
 
-            locale="en-US"
-        )
+            soup = BeautifulSoup(html_content, "html.parser")
 
-        page = await context.new_page()
+            review_blocks = soup.select("div.jftiEf")
 
-        await stealth_async(page)
+            logger.info(f"PLAYWRIGHT BLOCKS => {len(review_blocks)}")
 
-        url = (
-            "https://www.google.com/maps/place/"
-            f"?q=place_id:{place_id}"
-        )
+            for block in review_blocks:
+                try:
+                    author = "Anonymous"
+                    rating = 5
+                    review_text = ""
 
-        logger.info(
-            f"🌍 OPENING => {url}"
-        )
+                    author_element = block.select_one(".d4r55")
 
-        await page.goto(
+                    if author_element:
+                        author = author_element.get_text(strip=True)
 
-            url,
+                    review_element = block.select_one(".wiI7pd")
 
-            timeout=120000,
+                    if review_element:
+                        review_text = review_element.get_text(strip=True)
 
-            wait_until="networkidle"
-        )
+                    rating_element = block.select_one("span.kvMYJc")
 
-        await human_delay(3, 5)
-
-        try:
-
-            reviews_button = page.locator(
-
-                'button[jsaction*="pane.reviewChart.moreReviews"]'
-            )
-
-            await reviews_button.click()
-
-            logger.info(
-                "✅ REVIEW BUTTON CLICKED"
-            )
-
-        except Exception:
-
-            logger.warning(
-                "❌ REVIEW BUTTON NOT FOUND"
-            )
-
-        await human_delay(3, 5)
-
-        # =================================================
-        # DEEP SCROLL
-        # =================================================
-
-        for _ in range(50):
-
-            await page.mouse.wheel(
-                0,
-                10000
-            )
-
-            await human_delay(1, 2)
-
-        html_content = await page.content()
-
-        soup = BeautifulSoup(
-            html_content,
-            "lxml"
-        )
-
-        review_blocks = soup.select(
-            "div.jftiEf"
-        )
-
-        logger.info(
-            f"✅ PLAYWRIGHT BLOCKS => {len(review_blocks)}"
-        )
-
-        for block in review_blocks:
-
-            try:
-
-                author = ""
-
-                rating = 5
-
-                review_text = ""
-
-                author_element = block.select_one(
-                    ".d4r55"
-                )
-
-                if author_element:
-
-                    author = author_element.text.strip()
-
-                review_element = block.select_one(
-                    ".wiI7pd"
-                )
-
-                if review_element:
-
-                    review_text = review_element.text.strip()
-
-                rating_element = block.select_one(
-                    "span.kvMYJc"
-                )
-
-                if rating_element:
-
-                    aria = rating_element.get(
-                        "aria-label",
-                        ""
-                    )
-
-                    match = re.search(
-                        r"(\d)",
-                        aria
-                    )
-
-                    if match:
-
-                        rating = int(
-                            match.group(1)
+                    if rating_element:
+                        rating = parse_rating_from_text(
+                            rating_element.get("aria-label", "")
                         )
 
-                if review_text:
-
-                    review = normalize_review({
-
-                        "author": author,
-
-                        "rating": rating,
-
-                        "review_text": review_text,
-
-                        "source": "PLAYWRIGHT"
-                    })
+                    review = normalize_review(
+                        {
+                            "author": author,
+                            "rating": rating,
+                            "review_text": review_text,
+                            "source": "PLAYWRIGHT",
+                        },
+                        place_id=place_id,
+                    )
 
                     if review:
-
                         reviews.append(review)
 
-            except Exception as parse_error:
+                except Exception as parse_error:
+                    logger.error(f"PLAYWRIGHT PARSE ERROR => {parse_error}")
 
-                logger.error(
-                    f"❌ PLAYWRIGHT PARSE ERROR => {parse_error}"
-                )
+            await context.close()
+            await browser.close()
 
-        await browser.close()
+    except Exception as e:
+        logger.error(f"PLAYWRIGHT ERROR => {e}")
+        logger.error(traceback.format_exc())
 
-    logger.info(
-        f"✅ PLAYWRIGHT SCRAPED => {len(reviews)}"
-    )
+        try:
+            if browser:
+                await browser.close()
+        except Exception:
+            pass
+
+    logger.info(f"PLAYWRIGHT REVIEWS => {len(reviews)}")
 
     return reviews
 
 # =========================================================
-# CURL_CFFI FALLBACK
+# CURL_CFFI SCRAPER
 # =========================================================
 
 def curl_reviews(
-    place_id: str
-):
-
-    logger.info(
-        "🚀 CURL_CFFI STARTED"
-    )
+    place_id: str,
+) -> List[Dict[str, Any]]:
+    logger.info("CURL_CFFI STARTED")
 
     reviews = []
 
-    try:
+    if not ENABLE_CURL:
+        logger.info("CURL disabled")
+        return reviews
 
-        session = Session()
+    if not CURL_CFFI_AVAILABLE:
+        logger.warning("curl_cffi package missing")
+        return reviews
+
+    if not SELECTOLAX_AVAILABLE:
+        logger.warning("selectolax package missing")
+        return reviews
+
+    try:
+        session = CurlSession()
+
+        proxies = None
+
+        if PROXY_URL:
+            proxies = {
+                "http": PROXY_URL,
+                "https": PROXY_URL,
+            }
 
         response = session.get(
-
-            (
-                "https://www.google.com/maps/place/"
-                f"?q=place_id:{place_id}"
-            ),
-
+            google_maps_url(place_id),
             impersonate="chrome124",
-
-            proxies={
-
-                "http": PROXY_URL,
-
-                "https": PROXY_URL
-            },
-
+            proxies=proxies,
             headers={
-
-                "User-Agent":
-                    ua.random
+                "User-Agent": get_user_agent(),
+                "Accept-Language": "en-US,en;q=0.9",
             },
-
-            timeout=120
+            timeout=60,
         )
 
-        parser = HTMLParser(
-            response.text
-        )
+        parser = HTMLParser(response.text)
 
-        nodes = parser.css(
-            ".wiI7pd"
-        )
+        nodes = parser.css(".wiI7pd")
 
-        logger.info(
-            f"✅ CURL NODES => {len(nodes)}"
-        )
+        logger.info(f"CURL NODES => {len(nodes)}")
 
         for node in nodes:
+            review_text = safe_str(node.text())
 
-            review_text = node.text().strip()
+            review = normalize_review(
+                {
+                    "author": "Google User",
+                    "rating": 5,
+                    "review_text": review_text,
+                    "source": "CURL_CFFI",
+                },
+                place_id=place_id,
+            )
 
-            if review_text:
-
-                review = normalize_review({
-
-                    "author":
-                        "Curl User",
-
-                    "rating":
-                        5,
-
-                    "review_text":
-                        review_text,
-
-                    "source":
-                        "CURL_CFFI"
-                })
-
-                if review:
-
-                    reviews.append(review)
+            if review:
+                reviews.append(review)
 
     except Exception as e:
+        logger.error(f"CURL ERROR => {e}")
+        logger.error(traceback.format_exc())
 
-        logger.error(
-            f"❌ CURL ERROR => {e}"
-        )
-
-    logger.info(
-        f"✅ CURL SCRAPED => {len(reviews)}"
-    )
+    logger.info(f"CURL REVIEWS => {len(reviews)}")
 
     return reviews
 
 # =========================================================
-# CRAWL4AI
+# CRAWL4AI SCRAPER
 # =========================================================
 
 async def crawl4ai_reviews(
-    place_id: str
-):
+    place_id: str,
+) -> List[Dict[str, Any]]:
+    logger.info("CRAWL4AI STARTED")
 
     reviews = []
 
-    if not CRAWL4AI_AVAILABLE:
+    if not ENABLE_CRAWL4AI:
+        logger.info("CRAWL4AI disabled")
+        return reviews
 
+    if not CRAWL4AI_AVAILABLE:
+        logger.warning("crawl4ai package missing")
+        return reviews
+
+    if not BS4_AVAILABLE:
+        logger.warning("bs4 package missing")
         return reviews
 
     try:
-
-        logger.info(
-            "🚀 CRAWL4AI STARTED"
-        )
-
         async with AsyncWebCrawler() as crawler:
-
             result = await crawler.arun(
+                url=google_maps_url(place_id)
+            )
 
-                url=(
-                    "https://www.google.com/maps/place/"
-                    f"?q=place_id:{place_id}"
+            html_content = getattr(result, "html", "") or ""
+
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            elements = soup.select(".wiI7pd")
+
+            logger.info(f"CRAWL4AI ELEMENTS => {len(elements)}")
+
+            for element in elements:
+                review_text = safe_str(element.get_text(strip=True))
+
+                review = normalize_review(
+                    {
+                        "author": "Google User",
+                        "rating": 5,
+                        "review_text": review_text,
+                        "source": "CRAWL4AI",
+                    },
+                    place_id=place_id,
                 )
-            )
 
-            html_content = result.html
-
-            soup = BeautifulSoup(
-                html_content,
-                "lxml"
-            )
-
-            elements = soup.select(
-                ".wiI7pd"
-            )
-
-            logger.info(
-                f"✅ CRAWL4AI ELEMENTS => {len(elements)}"
-            )
-
-            for item in elements:
-
-                review_text = item.text.strip()
-
-                if review_text:
-
-                    review = normalize_review({
-
-                        "author":
-                            "Crawler User",
-
-                        "rating":
-                            5,
-
-                        "review_text":
-                            review_text,
-
-                        "source":
-                            "CRAWL4AI"
-                    })
-
-                    if review:
-
-                        reviews.append(review)
+                if review:
+                    reviews.append(review)
 
     except Exception as e:
+        logger.error(f"CRAWL4AI ERROR => {e}")
+        logger.error(traceback.format_exc())
 
-        logger.error(
-            f"❌ CRAWL4AI ERROR => {e}"
-        )
-
-    logger.info(
-        f"✅ CRAWL4AI SCRAPED => {len(reviews)}"
-    )
+    logger.info(f"CRAWL4AI REVIEWS => {len(reviews)}")
 
     return reviews
 
@@ -788,110 +683,62 @@ async def crawl4ai_reviews(
 # =========================================================
 
 async def scrape_google_reviews(
-    place_id: str
-):
+    place_id: str,
+) -> List[Dict[str, Any]]:
+    logger.info(f"MASTER SCRAPER STARTED => {place_id}")
 
-    logger.info(
-        f"🚀 MASTER SCRAPER STARTED => {place_id}"
-    )
+    place_id = safe_str(place_id)
+
+    if not place_id:
+        logger.warning("place_id missing")
+        return []
 
     all_reviews = []
 
     try:
-
-        # =================================================
-        # SERPAPI FIRST
-        # =================================================
-
-        serp_reviews = serpapi_reviews(
-            place_id
+        serp_reviews = await asyncio.to_thread(
+            serpapi_reviews,
+            place_id,
         )
 
-        all_reviews.extend(
-            serp_reviews
-        )
+        all_reviews.extend(serp_reviews)
 
-        logger.info(
-            f"📊 AFTER SERPAPI => {len(all_reviews)}"
-        )
+        logger.info(f"AFTER SERPAPI => {len(all_reviews)}")
 
-        # =================================================
-        # PLAYWRIGHT
-        # =================================================
+        if len(all_reviews) < MAX_REVIEWS:
+            playwright_result = await playwright_reviews(place_id)
+            all_reviews.extend(playwright_result)
 
-        if len(all_reviews) < 100:
+            logger.info(f"AFTER PLAYWRIGHT => {len(all_reviews)}")
 
-            playwright_result = await playwright_reviews(
-                place_id
+        if len(all_reviews) < MAX_REVIEWS:
+            curl_result = await asyncio.to_thread(
+                curl_reviews,
+                place_id,
             )
 
-            all_reviews.extend(
-                playwright_result
-            )
+            all_reviews.extend(curl_result)
 
-            logger.info(
-                f"📊 AFTER PLAYWRIGHT => {len(all_reviews)}"
-            )
+            logger.info(f"AFTER CURL => {len(all_reviews)}")
 
-        # =================================================
-        # CURL_CFFI
-        # =================================================
+        if len(all_reviews) < MAX_REVIEWS:
+            crawl_result = await crawl4ai_reviews(place_id)
+            all_reviews.extend(crawl_result)
 
-        if len(all_reviews) < 100:
+            logger.info(f"AFTER CRAWL4AI => {len(all_reviews)}")
 
-            curl_result = curl_reviews(
-                place_id
-            )
+        all_reviews = deduplicate_reviews(all_reviews)
 
-            all_reviews.extend(
-                curl_result
-            )
+        if MAX_REVIEWS > 0:
+            all_reviews = all_reviews[:MAX_REVIEWS]
 
-            logger.info(
-                f"📊 AFTER CURL => {len(all_reviews)}"
-            )
-
-        # =================================================
-        # CRAWL4AI
-        # =================================================
-
-        if len(all_reviews) < 100:
-
-            crawl_result = await crawl4ai_reviews(
-                place_id
-            )
-
-            all_reviews.extend(
-                crawl_result
-            )
-
-            logger.info(
-                f"📊 AFTER CRAWL4AI => {len(all_reviews)}"
-            )
-
-        # =================================================
-        # DEDUPLICATION
-        # =================================================
-
-        all_reviews = deduplicate_reviews(
-            all_reviews
-        )
-
-        logger.info(
-            f"✅ FINAL UNIQUE REVIEWS => {len(all_reviews)}"
-        )
+        logger.info(f"FINAL UNIQUE REVIEWS => {len(all_reviews)}")
 
         return all_reviews
 
     except Exception as e:
-
-        logger.error(
-            f"❌ MASTER SCRAPER ERROR => {e}"
-        )
-
-        logger.error(
-            traceback.format_exc()
-        )
+        logger.error(f"MASTER SCRAPER ERROR => {e}")
+        logger.error(traceback.format_exc())
 
         return []
 
@@ -902,18 +749,18 @@ async def scrape_google_reviews(
 if __name__ == "__main__":
 
     async def main():
-
-        place_id = "ChIJN1t_tDeuEmsRUsoyG83frY4"
-
-        reviews = await scrape_google_reviews(
-            place_id
+        place_id = os.getenv(
+            "TEST_PLACE_ID",
+            "ChIJN1t_tDeuEmsRUsoyG83frY4",
         )
+
+        reviews = await scrape_google_reviews(place_id)
 
         print(
             json.dumps(
                 reviews[:5],
                 indent=4,
-                default=str
+                default=str,
             )
         )
 
