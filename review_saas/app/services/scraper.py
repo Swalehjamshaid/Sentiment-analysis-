@@ -11,9 +11,10 @@ import logging
 import traceback
 import random
 import hashlib
+import time
 
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Callable
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -29,8 +30,13 @@ PROXY_PASSWORD = os.getenv("PROXY_PASSWORD", "").strip()
 PROXY_SERVER = os.getenv("PROXY_SERVER", "").strip()
 
 MAX_REVIEWS = int(os.getenv("SCRAPER_MAX_REVIEWS", "100"))
-SCRAPER_RETRIES = int(os.getenv("SCRAPER_RETRIES", "3"))
-SCRAPER_TIMEOUT = int(os.getenv("SCRAPER_TIMEOUT", "60"))
+
+# Each provider retries until this many seconds have passed.
+PROVIDER_RETRY_SECONDS = int(
+    os.getenv("SCRAPER_PROVIDER_RETRY_SECONDS", "30")
+)
+
+SCRAPER_TIMEOUT = int(os.getenv("SCRAPER_TIMEOUT", "20"))
 
 ENABLE_SERPAPI = os.getenv("ENABLE_SERPAPI_SCRAPER", "true").lower() == "true"
 ENABLE_PLAYWRIGHT = os.getenv("ENABLE_PLAYWRIGHT_SCRAPER", "true").lower() == "true"
@@ -128,7 +134,7 @@ def get_user_agent() -> str:
         except Exception:
             pass
 
-    versions = ["120", "121", "122", "123", "124", "125"]
+    versions = ["120", "121", "122", "123", "124", "125", "126"]
     version = random.choice(versions)
 
     return (
@@ -145,51 +151,115 @@ async def human_delay(
     await asyncio.sleep(random.uniform(minimum, maximum))
 
 
-async def retry_async(
+async def retry_async_for_seconds(
     name: str,
     func: Callable,
     *args,
-    retries: int = SCRAPER_RETRIES,
-    base_delay: float = 1.0,
+    retry_seconds: int = PROVIDER_RETRY_SECONDS,
     **kwargs,
 ):
+    deadline = time.monotonic() + retry_seconds
+    attempt = 0
     last_error = None
 
-    for attempt in range(1, retries + 1):
+    while time.monotonic() < deadline:
+        attempt += 1
+
         try:
-            logger.info(f"{name} attempt {attempt}/{retries}")
-            return await func(*args, **kwargs)
+            remaining = max(0, int(deadline - time.monotonic()))
+
+            logger.info(
+                f"{name} attempt {attempt}, remaining {remaining}s"
+            )
+
+            result = await func(*args, **kwargs)
+
+            if result:
+                logger.info(
+                    f"{name} success on attempt {attempt} => {len(result)} reviews"
+                )
+
+                return result
+
+            last_error = "empty result"
+
+            await asyncio.sleep(
+                min(5, max(1, retry_seconds / 10)) + random.uniform(0.2, 1.0)
+            )
 
         except Exception as e:
             last_error = e
-            logger.warning(f"{name} retry error => {e}")
-            await asyncio.sleep(base_delay * attempt + random.uniform(0.2, 1.0))
 
-    logger.error(f"{name} failed after retries => {last_error}")
+            logger.warning(
+                f"{name} attempt {attempt} failed => {e}"
+            )
+
+            await asyncio.sleep(
+                min(5, attempt * 1.5) + random.uniform(0.2, 1.0)
+            )
+
+    logger.error(
+        f"{name} stopped after {retry_seconds}s => {last_error}"
+    )
+
     return []
 
 
-async def retry_thread(
+async def retry_thread_for_seconds(
     name: str,
     func: Callable,
     *args,
-    retries: int = SCRAPER_RETRIES,
-    base_delay: float = 1.0,
+    retry_seconds: int = PROVIDER_RETRY_SECONDS,
     **kwargs,
 ):
+    deadline = time.monotonic() + retry_seconds
+    attempt = 0
     last_error = None
 
-    for attempt in range(1, retries + 1):
+    while time.monotonic() < deadline:
+        attempt += 1
+
         try:
-            logger.info(f"{name} attempt {attempt}/{retries}")
-            return await asyncio.to_thread(func, *args, **kwargs)
+            remaining = max(0, int(deadline - time.monotonic()))
+
+            logger.info(
+                f"{name} attempt {attempt}, remaining {remaining}s"
+            )
+
+            result = await asyncio.to_thread(
+                func,
+                *args,
+                **kwargs,
+            )
+
+            if result:
+                logger.info(
+                    f"{name} success on attempt {attempt} => {len(result)} reviews"
+                )
+
+                return result
+
+            last_error = "empty result"
+
+            await asyncio.sleep(
+                min(5, max(1, retry_seconds / 10)) + random.uniform(0.2, 1.0)
+            )
 
         except Exception as e:
             last_error = e
-            logger.warning(f"{name} retry error => {e}")
-            await asyncio.sleep(base_delay * attempt + random.uniform(0.2, 1.0))
 
-    logger.error(f"{name} failed after retries => {last_error}")
+            logger.warning(
+                f"{name} attempt {attempt} failed => {e}"
+            )
+
+            await asyncio.sleep(
+                min(5, attempt * 1.5) + random.uniform(0.2, 1.0)
+            )
+
+    logger.error(
+        f"{name} stopped after {retry_seconds}s => {last_error}"
+    )
+
     return []
 
 
@@ -387,7 +457,7 @@ def normalize_review(
         or review.get("time")
     )
 
-    normalized = {
+    return {
         "google_review_id": review_id,
         "author": author,
         "author_name": author,
@@ -403,8 +473,6 @@ def normalize_review(
         "scraped_at": utc_now(),
         "place_id": place_id,
     }
-
-    return normalized
 
 
 def deduplicate_reviews(
@@ -473,66 +541,57 @@ def serpapi_reviews(
         logger.warning("requests package missing")
         return reviews
 
-    try:
-        params = {
-            "engine": "google_maps_reviews",
-            "place_id": place_id,
-            "api_key": SERPAPI_KEY,
-            "hl": "en",
-        }
+    params = {
+        "engine": "google_maps_reviews",
+        "place_id": place_id,
+        "api_key": SERPAPI_KEY,
+        "hl": "en",
+    }
 
-        while len(reviews) < MAX_REVIEWS:
-            response = requests.get(
-                "https://serpapi.com/search.json",
-                params=params,
-                timeout=SCRAPER_TIMEOUT,
+    while len(reviews) < MAX_REVIEWS:
+        response = requests.get(
+            "https://serpapi.com/search.json",
+            params=params,
+            timeout=SCRAPER_TIMEOUT,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        raw_reviews = data.get("reviews", []) or []
+
+        for item in raw_reviews:
+            review = normalize_review(
+                {
+                    "google_review_id": item.get("review_id") or item.get("id"),
+                    "author": (
+                        item.get("user", {}).get("name")
+                        if isinstance(item.get("user"), dict)
+                        else item.get("user")
+                    ) or item.get("name"),
+                    "rating": item.get("rating"),
+                    "review_text": item.get("snippet") or item.get("text"),
+                    "google_review_time": item.get("date"),
+                    "source": "SERPAPI",
+                },
+                place_id=place_id,
             )
 
-            response.raise_for_status()
+            if review:
+                reviews.append(review)
 
-            data = response.json()
+        next_page_token = (
+            data.get("serpapi_pagination", {}).get("next_page_token")
+            or data.get("search_metadata", {}).get("next_page_token")
+        )
 
-            raw_reviews = data.get("reviews", []) or []
+        if not next_page_token:
+            break
 
-            for item in raw_reviews:
-                review = normalize_review(
-                    {
-                        "google_review_id": item.get("review_id") or item.get("id"),
-                        "author": (
-                            item.get("user", {}).get("name")
-                            if isinstance(item.get("user"), dict)
-                            else item.get("user")
-                        ) or item.get("name"),
-                        "rating": item.get("rating"),
-                        "review_text": item.get("snippet") or item.get("text"),
-                        "google_review_time": item.get("date"),
-                        "source": "SERPAPI",
-                    },
-                    place_id=place_id,
-                )
+        params["next_page_token"] = next_page_token
 
-                if review:
-                    reviews.append(review)
-
-            next_page_token = (
-                data.get("serpapi_pagination", {}).get("next_page_token")
-                or data.get("search_metadata", {}).get("next_page_token")
-            )
-
-            if not next_page_token:
-                break
-
-            params["next_page_token"] = next_page_token
-
-            if len(reviews) >= MAX_REVIEWS:
-                break
-
-        logger.info(f"SERPAPI REVIEWS => {len(reviews)}")
-
-    except Exception as e:
-        logger.error(f"SERPAPI ERROR => {e}")
-        logger.error(traceback.format_exc())
-        raise
+    logger.info(f"SERPAPI REVIEWS => {len(reviews)}")
 
     return reviews
 
@@ -605,25 +664,19 @@ async def playwright_reviews(
                 except Exception as stealth_error:
                     logger.warning(f"stealth failed => {stealth_error}")
 
-            url = google_maps_url(place_id)
-
-            logger.info(f"OPENING => {url}")
-
             await page.goto(
-                url,
+                google_maps_url(place_id),
                 timeout=90000,
                 wait_until="domcontentloaded",
             )
 
             await human_delay(3, 5)
 
-            consent_buttons = [
+            for selector in [
                 'button:has-text("Accept all")',
                 'button:has-text("I agree")',
                 'button:has-text("Accept")',
-            ]
-
-            for selector in consent_buttons:
+            ]:
                 try:
                     button = page.locator(selector).first()
 
@@ -634,36 +687,31 @@ async def playwright_reviews(
                 except Exception:
                     continue
 
-            review_button_selectors = [
+            for selector in [
                 'button[jsaction*="pane.reviewChart.moreReviews"]',
                 'button[aria-label*="reviews"]',
                 'button[aria-label*="Reviews"]',
                 'button:has-text("reviews")',
                 'button:has-text("Reviews")',
-            ]
-
-            for selector in review_button_selectors:
+            ]:
                 try:
                     button = page.locator(selector).first()
 
                     if await button.count() > 0:
                         await button.click(timeout=7000)
-                        logger.info(f"review button clicked => {selector}")
                         await human_delay(2, 4)
                         break
                 except Exception:
                     continue
 
-            scroll_targets = [
-                'div[role="main"]',
-                'div[aria-label*="Reviews"]',
-                'div.m6QErb',
-            ]
-
-            for _ in range(35):
+            for _ in range(40):
                 scrolled = False
 
-                for selector in scroll_targets:
+                for selector in [
+                    'div[role="main"]',
+                    'div[aria-label*="Reviews"]',
+                    'div.m6QErb',
+                ]:
                     try:
                         target = page.locator(selector).last()
 
@@ -677,9 +725,9 @@ async def playwright_reviews(
                         continue
 
                 if not scrolled:
-                    await page.mouse.wheel(0, 8000)
+                    await page.mouse.wheel(0, 9000)
 
-                await human_delay(0.4, 1.0)
+                await human_delay(0.35, 0.9)
 
             html_content = await page.content()
 
@@ -690,54 +738,45 @@ async def playwright_reviews(
             logger.info(f"PLAYWRIGHT BLOCKS => {len(review_blocks)}")
 
             for block in review_blocks:
-                try:
-                    author = "Anonymous"
-                    rating = 5
-                    review_text = ""
+                author = "Anonymous"
+                rating = 5
+                review_text = ""
 
-                    author_element = block.select_one(".d4r55")
+                author_element = block.select_one(".d4r55")
 
-                    if author_element:
-                        author = author_element.get_text(strip=True)
+                if author_element:
+                    author = author_element.get_text(strip=True)
 
-                    review_element = block.select_one(".wiI7pd")
+                review_element = block.select_one(".wiI7pd")
 
-                    if review_element:
-                        review_text = review_element.get_text(" ", strip=True)
+                if review_element:
+                    review_text = review_element.get_text(" ", strip=True)
 
-                    rating_element = block.select_one("span.kvMYJc")
+                rating_element = block.select_one("span.kvMYJc")
 
-                    if rating_element:
-                        rating = parse_rating_from_text(
-                            rating_element.get("aria-label", "")
-                        )
-
-                    review_id = block.get("data-review-id") or ""
-
-                    review = normalize_review(
-                        {
-                            "google_review_id": review_id,
-                            "author": author,
-                            "rating": rating,
-                            "review_text": review_text,
-                            "source": "PLAYWRIGHT",
-                        },
-                        place_id=place_id,
+                if rating_element:
+                    rating = parse_rating_from_text(
+                        rating_element.get("aria-label", "")
                     )
 
-                    if review:
-                        reviews.append(review)
+                review = normalize_review(
+                    {
+                        "google_review_id": block.get("data-review-id") or "",
+                        "author": author,
+                        "rating": rating,
+                        "review_text": review_text,
+                        "source": "PLAYWRIGHT",
+                    },
+                    place_id=place_id,
+                )
 
-                except Exception as parse_error:
-                    logger.error(f"PLAYWRIGHT PARSE ERROR => {parse_error}")
+                if review:
+                    reviews.append(review)
 
             await context.close()
             await browser.close()
 
-    except Exception as e:
-        logger.error(f"PLAYWRIGHT ERROR => {e}")
-        logger.error(traceback.format_exc())
-
+    except Exception:
         try:
             if context:
                 await context.close()
@@ -779,55 +818,47 @@ def curl_reviews(
         logger.warning("selectolax package missing")
         return reviews
 
-    try:
-        session = CurlSession()
+    session = CurlSession()
 
-        proxies = None
+    proxies = None
 
-        if PROXY_URL:
-            proxies = {
-                "http": PROXY_URL,
-                "https": PROXY_URL,
-            }
+    if PROXY_URL:
+        proxies = {
+            "http": PROXY_URL,
+            "https": PROXY_URL,
+        }
 
-        response = session.get(
-            google_maps_url(place_id),
-            impersonate="chrome124",
-            proxies=proxies,
-            headers={
-                "User-Agent": get_user_agent(),
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    response = session.get(
+        google_maps_url(place_id),
+        impersonate="chrome124",
+        proxies=proxies,
+        headers={
+            "User-Agent": get_user_agent(),
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+        timeout=SCRAPER_TIMEOUT,
+    )
+
+    parser = HTMLParser(response.text)
+
+    nodes = parser.css(".wiI7pd")
+
+    logger.info(f"CURL NODES => {len(nodes)}")
+
+    for node in nodes:
+        review = normalize_review(
+            {
+                "author": "Google User",
+                "rating": 5,
+                "review_text": safe_str(node.text()),
+                "source": "CURL_CFFI",
             },
-            timeout=SCRAPER_TIMEOUT,
+            place_id=place_id,
         )
 
-        parser = HTMLParser(response.text)
-
-        nodes = parser.css(".wiI7pd")
-
-        logger.info(f"CURL NODES => {len(nodes)}")
-
-        for node in nodes:
-            review_text = safe_str(node.text())
-
-            review = normalize_review(
-                {
-                    "author": "Google User",
-                    "rating": 5,
-                    "review_text": review_text,
-                    "source": "CURL_CFFI",
-                },
-                place_id=place_id,
-            )
-
-            if review:
-                reviews.append(review)
-
-    except Exception as e:
-        logger.error(f"CURL ERROR => {e}")
-        logger.error(traceback.format_exc())
-        raise
+        if review:
+            reviews.append(review)
 
     logger.info(f"CURL REVIEWS => {len(reviews)}")
 
@@ -856,40 +887,34 @@ async def crawl4ai_reviews(
         logger.warning("bs4 package missing")
         return reviews
 
-    try:
-        async with AsyncWebCrawler() as crawler:
-            result = await crawler.arun(
-                url=google_maps_url(place_id)
+    async with AsyncWebCrawler() as crawler:
+        result = await crawler.arun(
+            url=google_maps_url(place_id)
+        )
+
+        html_content = getattr(result, "html", "") or ""
+
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        elements = soup.select(".wiI7pd")
+
+        logger.info(f"CRAWL4AI ELEMENTS => {len(elements)}")
+
+        for element in elements:
+            review = normalize_review(
+                {
+                    "author": "Google User",
+                    "rating": 5,
+                    "review_text": safe_str(
+                        element.get_text(" ", strip=True)
+                    ),
+                    "source": "CRAWL4AI",
+                },
+                place_id=place_id,
             )
 
-            html_content = getattr(result, "html", "") or ""
-
-            soup = BeautifulSoup(html_content, "html.parser")
-
-            elements = soup.select(".wiI7pd")
-
-            logger.info(f"CRAWL4AI ELEMENTS => {len(elements)}")
-
-            for element in elements:
-                review_text = safe_str(element.get_text(" ", strip=True))
-
-                review = normalize_review(
-                    {
-                        "author": "Google User",
-                        "rating": 5,
-                        "review_text": review_text,
-                        "source": "CRAWL4AI",
-                    },
-                    place_id=place_id,
-                )
-
-                if review:
-                    reviews.append(review)
-
-    except Exception as e:
-        logger.error(f"CRAWL4AI ERROR => {e}")
-        logger.error(traceback.format_exc())
-        raise
+            if review:
+                reviews.append(review)
 
     logger.info(f"CRAWL4AI REVIEWS => {len(reviews)}")
 
@@ -913,113 +938,95 @@ async def scrape_google_reviews(
     all_reviews = []
     provider_status = []
 
-    async def run_provider(name: str, runner: Callable):
+    async def run_provider(
+        name: str,
+        runner: Callable,
+    ):
         started_at = utc_now()
 
-        try:
-            reviews = await runner()
+        reviews = await runner()
 
-            provider_status.append({
-                "provider": name,
-                "success": True,
-                "reviews": len(reviews),
-                "error": None,
-                "started_at": started_at.isoformat(),
-                "finished_at": utc_now().isoformat(),
-            })
+        provider_status.append({
+            "provider": name,
+            "success": bool(reviews),
+            "reviews": len(reviews),
+            "retry_seconds": PROVIDER_RETRY_SECONDS,
+            "started_at": started_at.isoformat(),
+            "finished_at": utc_now().isoformat(),
+        })
 
-            return reviews
+        return reviews
 
-        except Exception as e:
-            provider_status.append({
-                "provider": name,
-                "success": False,
-                "reviews": 0,
-                "error": str(e),
-                "started_at": started_at.isoformat(),
-                "finished_at": utc_now().isoformat(),
-            })
-
-            logger.error(f"{name} provider failed => {e}")
-            return []
-
-    try:
-        serp_reviews = await run_provider(
+    serp_reviews = await run_provider(
+        "SERPAPI",
+        lambda: retry_thread_for_seconds(
             "SERPAPI",
-            lambda: retry_thread(
-                "SERPAPI",
-                serpapi_reviews,
+            serpapi_reviews,
+            place_id,
+        ),
+    )
+
+    all_reviews.extend(serp_reviews)
+    all_reviews = deduplicate_reviews(all_reviews)
+
+    logger.info(f"AFTER SERPAPI => {len(all_reviews)}")
+
+    if len(all_reviews) < MAX_REVIEWS:
+        playwright_result = await run_provider(
+            "PLAYWRIGHT",
+            lambda: retry_async_for_seconds(
+                "PLAYWRIGHT",
+                playwright_reviews,
                 place_id,
             ),
         )
 
-        all_reviews.extend(serp_reviews)
+        all_reviews.extend(playwright_result)
         all_reviews = deduplicate_reviews(all_reviews)
 
-        logger.info(f"AFTER SERPAPI => {len(all_reviews)}")
+        logger.info(f"AFTER PLAYWRIGHT => {len(all_reviews)}")
 
-        if len(all_reviews) < MAX_REVIEWS:
-            playwright_result = await run_provider(
-                "PLAYWRIGHT",
-                lambda: retry_async(
-                    "PLAYWRIGHT",
-                    playwright_reviews,
-                    place_id,
-                ),
-            )
-
-            all_reviews.extend(playwright_result)
-            all_reviews = deduplicate_reviews(all_reviews)
-
-            logger.info(f"AFTER PLAYWRIGHT => {len(all_reviews)}")
-
-        if len(all_reviews) < MAX_REVIEWS:
-            curl_result = await run_provider(
+    if len(all_reviews) < MAX_REVIEWS:
+        curl_result = await run_provider(
+            "CURL_CFFI",
+            lambda: retry_thread_for_seconds(
                 "CURL_CFFI",
-                lambda: retry_thread(
-                    "CURL_CFFI",
-                    curl_reviews,
-                    place_id,
-                ),
-            )
+                curl_reviews,
+                place_id,
+            ),
+        )
 
-            all_reviews.extend(curl_result)
-            all_reviews = deduplicate_reviews(all_reviews)
-
-            logger.info(f"AFTER CURL => {len(all_reviews)}")
-
-        if len(all_reviews) < MAX_REVIEWS:
-            crawl_result = await run_provider(
-                "CRAWL4AI",
-                lambda: retry_async(
-                    "CRAWL4AI",
-                    crawl4ai_reviews,
-                    place_id,
-                ),
-            )
-
-            all_reviews.extend(crawl_result)
-            all_reviews = deduplicate_reviews(all_reviews)
-
-            logger.info(f"AFTER CRAWL4AI => {len(all_reviews)}")
-
+        all_reviews.extend(curl_result)
         all_reviews = deduplicate_reviews(all_reviews)
 
-        if MAX_REVIEWS > 0:
-            all_reviews = all_reviews[:MAX_REVIEWS]
+        logger.info(f"AFTER CURL => {len(all_reviews)}")
 
-        for review in all_reviews:
-            review["scraper_status"] = provider_status
+    if len(all_reviews) < MAX_REVIEWS:
+        crawl_result = await run_provider(
+            "CRAWL4AI",
+            lambda: retry_async_for_seconds(
+                "CRAWL4AI",
+                crawl4ai_reviews,
+                place_id,
+            ),
+        )
 
-        logger.info(f"FINAL UNIQUE REVIEWS => {len(all_reviews)}")
+        all_reviews.extend(crawl_result)
+        all_reviews = deduplicate_reviews(all_reviews)
 
-        return all_reviews
+        logger.info(f"AFTER CRAWL4AI => {len(all_reviews)}")
 
-    except Exception as e:
-        logger.error(f"MASTER SCRAPER ERROR => {e}")
-        logger.error(traceback.format_exc())
+    all_reviews = deduplicate_reviews(all_reviews)
 
-        return []
+    if MAX_REVIEWS > 0:
+        all_reviews = all_reviews[:MAX_REVIEWS]
+
+    for review in all_reviews:
+        review["scraper_status"] = provider_status
+
+    logger.info(f"FINAL UNIQUE REVIEWS => {len(all_reviews)}")
+
+    return all_reviews
 
 
 async def scrape_google_reviews_with_meta(
