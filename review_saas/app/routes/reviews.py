@@ -79,10 +79,10 @@ except Exception as e:
 
 try:
 
-    from app.models import (
-        Company,
-        Review
-    )
+   from app.core.models import (
+    Company,
+    Review
+)
 
     print("✅ MODELS IMPORTED")
 
