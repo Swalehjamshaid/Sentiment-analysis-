@@ -56,7 +56,7 @@ try:
         "🔥 TRYING TO IMPORT SCRAPER"
     )
 
-    from app.scraper import scrape_google_reviews
+   from app.services.scraper import scrape_google_reviews
 
     SCRAPER_AVAILABLE = True
 
