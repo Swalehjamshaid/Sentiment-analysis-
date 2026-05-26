@@ -1,7 +1,6 @@
 # =========================================================
 # FILE: app/routes/reviews.py
-# TRUSTLYTICS AI - ENTERPRISE REVIEWS ROUTER
-# FINAL STABLE PRODUCTION VERSION
+# TRUSTLYTICS AI - FULL ASYNC ENTERPRISE VERSION
 # =========================================================
 
 from fastapi import (
@@ -11,9 +10,10 @@ from fastapi import (
     Query
 )
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import (
+    select,
     desc,
     and_
 )
@@ -47,12 +47,6 @@ from app.core.models import (
 SCRAPER_AVAILABLE = False
 
 try:
-
-    # =====================================================
-    # IMPORTANT:
-    # CHANGE THIS IMPORT IF YOUR SCRAPER FILE
-    # EXISTS IN ANOTHER FOLDER
-    # =====================================================
 
     from app.scraper import scrape_google_reviews
 
@@ -176,7 +170,7 @@ async def get_company_reviews(
 
     rating: Optional[int] = None,
 
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
 
     try:
@@ -185,9 +179,18 @@ async def get_company_reviews(
             f"📊 FETCHING REVIEWS => {company_id}"
         )
 
-        company = db.query(Company).filter(
-            Company.id == company_id
-        ).first()
+        # =================================================
+        # COMPANY CHECK
+        # =================================================
+
+        company_result = await db.execute(
+
+            select(Company).where(
+                Company.id == company_id
+            )
+        )
+
+        company = company_result.scalar_one_or_none()
 
         if not company:
 
@@ -198,25 +201,34 @@ async def get_company_reviews(
                 detail="Company not found"
             )
 
-        query = db.query(Review).filter(
+        # =================================================
+        # REVIEWS QUERY
+        # =================================================
+
+        query = select(Review).where(
             Review.company_id == company_id
         )
 
-        # =================================================
-        # FILTER BY RATING
-        # =================================================
-
         if rating is not None:
 
-            query = query.filter(
+            query = query.where(
                 Review.rating == rating
             )
 
-        total_reviews = query.count()
+        # =================================================
+        # FETCH REVIEWS
+        # =================================================
 
-        reviews = query.order_by(
-            desc(Review.created_at)
-        ).offset(skip).limit(limit).all()
+        reviews_result = await db.execute(
+
+            query.order_by(
+                desc(Review.created_at)
+            ).offset(skip).limit(limit)
+        )
+
+        reviews = reviews_result.scalars().all()
+
+        total_reviews = len(reviews)
 
         response_reviews = []
 
@@ -293,7 +305,7 @@ async def sync_reviews(
 
     company_id: int,
 
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
 
     try:
@@ -302,9 +314,18 @@ async def sync_reviews(
             f"🚀 SYNC STARTED => {company_id}"
         )
 
-        company = db.query(Company).filter(
-            Company.id == company_id
-        ).first()
+        # =================================================
+        # COMPANY CHECK
+        # =================================================
+
+        company_result = await db.execute(
+
+            select(Company).where(
+                Company.id == company_id
+            )
+        )
+
+        company = company_result.scalar_one_or_none()
 
         if not company:
 
@@ -332,7 +353,7 @@ async def sync_reviews(
             }
 
         # =================================================
-        # GOOGLE PLACE ID
+        # PLACE ID
         # =================================================
 
         google_place_id = getattr(
@@ -424,18 +445,28 @@ async def sync_reviews(
                 # DUPLICATE CHECK
                 # =========================================
 
-                existing_review = db.query(Review).filter(
+                duplicate_result = await db.execute(
 
-                    and_(
+                    select(Review).where(
 
-                        Review.company_id == company_id,
+                        and_(
 
-                        Review.text == review_text,
+                            Review.company_id
+                            == company_id,
 
-                        Review.author_name == author
+                            Review.text
+                            == review_text,
+
+                            Review.author_name
+                            == author
+                        )
                     )
+                )
 
-                ).first()
+                existing_review = (
+                    duplicate_result
+                    .scalar_one_or_none()
+                )
 
                 if existing_review:
 
@@ -486,7 +517,7 @@ async def sync_reviews(
         # DATABASE COMMIT
         # =================================================
 
-        db.commit()
+        await db.commit()
 
         logger.info(
             f"✅ SYNC COMPLETE => {inserted_reviews}"
@@ -517,7 +548,7 @@ async def sync_reviews(
 
     except Exception as e:
 
-        db.rollback()
+        await db.rollback()
 
         logger.error(
             f"❌ SYNC ERROR => {e}"
@@ -543,14 +574,19 @@ async def review_analytics(
 
     company_id: int,
 
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
 
     try:
 
-        reviews = db.query(Review).filter(
-            Review.company_id == company_id
-        ).all()
+        result = await db.execute(
+
+            select(Review).where(
+                Review.company_id == company_id
+            )
+        )
+
+        reviews = result.scalars().all()
 
         total_reviews = len(reviews)
 
@@ -610,14 +646,19 @@ async def delete_review(
 
     review_id: int,
 
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
 
     try:
 
-        review = db.query(Review).filter(
-            Review.id == review_id
-        ).first()
+        result = await db.execute(
+
+            select(Review).where(
+                Review.id == review_id
+            )
+        )
+
+        review = result.scalar_one_or_none()
 
         if not review:
 
@@ -628,9 +669,9 @@ async def delete_review(
                 detail="Review not found"
             )
 
-        db.delete(review)
+        await db.delete(review)
 
-        db.commit()
+        await db.commit()
 
         return {
 
@@ -646,7 +687,7 @@ async def delete_review(
 
     except Exception as e:
 
-        db.rollback()
+        await db.rollback()
 
         raise HTTPException(
 
