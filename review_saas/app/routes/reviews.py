@@ -111,7 +111,7 @@ logger = logging.getLogger(__name__)
 # =========================================================
 
 router = APIRouter(
-    prefix="/reviews",
+    prefix="/api/reviews",
     tags=["Reviews"]
 )
 
