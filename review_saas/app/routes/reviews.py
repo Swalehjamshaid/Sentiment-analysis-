@@ -20,7 +20,7 @@ import logging
 import traceback
 
 # =========================================================
-# DEBUG LOGS
+# DEBUG
 # =========================================================
 
 print("🔥 ACTIVE REVIEWS.PY LOADED 🔥")
@@ -80,7 +80,7 @@ router = APIRouter(
 )
 
 # =========================================================
-# HEALTH CHECK
+# HEALTH ROUTE
 # =========================================================
 
 @router.get("/health")
@@ -90,6 +90,18 @@ async def review_health():
         "success": True,
         "message": "reviews.py working",
         "timestamp": datetime.utcnow()
+    }
+
+# =========================================================
+# TEST ROUTE
+# =========================================================
+
+@router.get("/test-sync")
+async def test_sync():
+
+    return {
+        "success": True,
+        "message": "SYNC ROUTE REGISTERED"
     }
 
 # =========================================================
@@ -110,18 +122,6 @@ async def debug_routes():
             "DELETE /api/reviews/delete/{review_id}",
             "GET /api/reviews/stats/{company_id}"
         ]
-    }
-
-# =========================================================
-# TEST ROUTE
-# =========================================================
-
-@router.get("/test-sync")
-async def test_sync():
-
-    return {
-        "success": True,
-        "message": "SYNC ROUTE REGISTERED"
     }
 
 # =========================================================
@@ -159,10 +159,6 @@ async def get_company_reviews(
         query = db.query(Review).filter(
             Review.company_id == company_id
         )
-
-        # =================================================
-        # OPTIONAL FILTERS
-        # =================================================
 
         if rating:
 
@@ -265,7 +261,7 @@ async def sync_reviews(
         )
 
         # =================================================
-        # COMPANY CHECK
+        # COMPANY VALIDATION
         # =================================================
 
         company = db.query(Company).filter(
@@ -280,7 +276,7 @@ async def sync_reviews(
             )
 
         # =================================================
-        # PLACE ID CHECK
+        # GOOGLE PLACE ID
         # =================================================
 
         google_place_id = getattr(
@@ -293,11 +289,12 @@ async def sync_reviews(
 
             return {
                 "success": False,
-                "message": "Google Place ID missing"
+                "message": "Google Place ID missing",
+                "company_id": company_id
             }
 
         # =================================================
-        # SCRAPER CHECK
+        # SCRAPER VALIDATION
         # =================================================
 
         if scrape_google_reviews is None:
@@ -336,7 +333,7 @@ async def sync_reviews(
         failed_reviews = 0
 
         # =================================================
-        # PROCESS REVIEWS
+        # INSERT REVIEWS
         # =================================================
 
         for item in scraped_reviews:
@@ -413,7 +410,7 @@ async def sync_reviews(
                 )
 
         # =================================================
-        # DATABASE COMMIT
+        # COMMIT
         # =================================================
 
         db.commit()
