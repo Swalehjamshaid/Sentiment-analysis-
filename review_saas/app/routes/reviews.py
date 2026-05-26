@@ -90,7 +90,6 @@ from auth import get_current_user
 
 try:
 
-  try:
 
     from app.scraper import scrape_google_reviews
 
