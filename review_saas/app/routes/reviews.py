@@ -4,27 +4,77 @@
 
 from fastapi import (
     APIRouter,
+    Depends,
     HTTPException,
-    Query
+    Query,
+    BackgroundTasks
 )
+
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, func, and_
 
 from typing import Optional
 from datetime import datetime
+import traceback
+import logging
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+from app.database import get_db
+
+# =========================================================
+# MODELS
+# =========================================================
+
+from app.models import (
+    Company,
+    Review
+)
+
+# =========================================================
+# AUTH
+# =========================================================
+
+from app.auth import get_current_user
+
+# =========================================================
+# SCRAPER
+# =========================================================
+
+SCRAPER_AVAILABLE = False
+
+try:
+
+    from app.scraper import scrape_google_reviews
+
+    SCRAPER_AVAILABLE = True
+
+except Exception as scraper_error:
+
+    scrape_google_reviews = None
+
+    print(
+        f"❌ SCRAPER IMPORT ERROR => {scraper_error}"
+    )
+
+# =========================================================
+# LOGGER
+# =========================================================
+
+logger = logging.getLogger(__name__)
 
 # =========================================================
 # ROUTER
 # =========================================================
 
 router = APIRouter(
+
     prefix="/api/reviews",
+
     tags=["Reviews"]
 )
-
-# =========================================================
-# TEMPORARY IN-MEMORY STORAGE
-# =========================================================
-
-FAKE_REVIEWS_DB = []
 
 # =========================================================
 # TEST ROUTE
@@ -38,6 +88,26 @@ async def test_sync():
         "success": True,
 
         "message": "TEST ROUTE WORKING",
+
+        "scraper_available": SCRAPER_AVAILABLE
+    }
+
+# =========================================================
+# HEALTH CHECK
+# =========================================================
+
+@router.get("/health")
+async def reviews_health():
+
+    return {
+
+        "success": True,
+
+        "service": "reviews",
+
+        "status": "healthy",
+
+        "scraper_available": SCRAPER_AVAILABLE,
 
         "timestamp": datetime.utcnow()
     }
@@ -64,50 +134,86 @@ async def get_company_reviews(
 
     rating: Optional[int] = None,
 
-    sentiment: Optional[str] = None
+    sentiment: Optional[str] = None,
+
+    db: Session = Depends(get_db)
 ):
 
     try:
 
-        company_reviews = [
+        logger.info(
+            f"📊 FETCHING REVIEWS => {company_id}"
+        )
 
-            review for review in FAKE_REVIEWS_DB
+        company = db.query(Company).filter(
+            Company.id == company_id
+        ).first()
 
-            if review["company_id"] == company_id
-        ]
+        if not company:
 
-        # =============================================
-        # FILTER BY RATING
-        # =============================================
+            raise HTTPException(
+
+                status_code=404,
+
+                detail="Company not found"
+            )
+
+        query = db.query(Review).filter(
+            Review.company_id == company_id
+        )
+
+        # =================================================
+        # FILTERS
+        # =================================================
 
         if rating is not None:
 
-            company_reviews = [
-
-                review for review in company_reviews
-
-                if review["rating"] == rating
-            ]
-
-        # =============================================
-        # FILTER BY SENTIMENT
-        # =============================================
+            query = query.filter(
+                Review.rating == rating
+            )
 
         if sentiment:
 
-            company_reviews = [
+            query = query.filter(
+                func.lower(
+                    Review.sentiment
+                ) == sentiment.lower()
+            )
 
-                review for review in company_reviews
+        total_reviews = query.count()
 
-                if review["sentiment"].lower()
-                == sentiment.lower()
-            ]
+        reviews = query.order_by(
+            desc(Review.created_at)
+        ).offset(skip).limit(limit).all()
 
-        total_reviews = len(company_reviews)
+        response_reviews = []
 
-        reviews = company_reviews[
-            skip: skip + limit
-        ]
+        for review in reviews:
+
+            response_reviews.append({
+
+                "id": review.id,
+
+                "company_id": review.company_id,
+
+                "author": review.author,
+
+                "rating": review.rating,
+
+                "review_text": review.review_text,
+
+                "sentiment": review.sentiment,
+
+                "source": review.source,
+
+                "review_date": review.review_date,
+
+                "created_at": review.created_at
+            })
+
+        logger.info(
+            f"✅ REVIEWS FETCHED => {len(response_reviews)}"
+        )
 
         return {
 
@@ -115,12 +221,25 @@ async def get_company_reviews(
 
             "company_id": company_id,
 
+            "company_name": company.name,
+
             "total_reviews": total_reviews,
 
-            "reviews": reviews
+            "reviews": response_reviews
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
+
+        logger.error(
+            f"❌ GET REVIEWS ERROR => {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
 
         raise HTTPException(
 
@@ -135,105 +254,268 @@ async def get_company_reviews(
 
 @router.post("/sync/{company_id}")
 @router.post("/sync/{company_id}/")
-async def sync_reviews(company_id: int):
+async def sync_reviews(
+
+    company_id: int,
+
+    db: Session = Depends(get_db)
+):
 
     try:
 
-        # =============================================
-        # FAKE SCRAPED REVIEWS
-        # =============================================
+        logger.info(
+            f"🚀 SYNC STARTED => {company_id}"
+        )
 
-        new_reviews = [
+        # =================================================
+        # COMPANY VALIDATION
+        # =================================================
 
-            {
+        company = db.query(Company).filter(
+            Company.id == company_id
+        ).first()
 
-                "id": 1,
+        if not company:
 
-                "company_id": company_id,
+            raise HTTPException(
 
-                "author": "John Smith",
+                status_code=404,
 
-                "rating": 5,
-
-                "review_text":
-                    "Amazing customer service and fast delivery.",
-
-                "sentiment": "positive",
-
-                "source": "Google",
-
-                "review_date":
-                    datetime.utcnow().isoformat(),
-
-                "created_at":
-                    datetime.utcnow().isoformat()
-            },
-
-            {
-
-                "id": 2,
-
-                "company_id": company_id,
-
-                "author": "Emma Johnson",
-
-                "rating": 2,
-
-                "review_text":
-                    "Delivery was delayed and support was slow.",
-
-                "sentiment": "negative",
-
-                "source": "Google",
-
-                "review_date":
-                    datetime.utcnow().isoformat(),
-
-                "created_at":
-                    datetime.utcnow().isoformat()
-            }
-        ]
-
-        inserted_reviews = 0
-
-        for review in new_reviews:
-
-            already_exists = any(
-
-                existing["review_text"]
-                == review["review_text"]
-
-                and
-
-                existing["company_id"]
-                == company_id
-
-                for existing in FAKE_REVIEWS_DB
+                detail="Company not found"
             )
 
-            if not already_exists:
+        # =================================================
+        # SCRAPER VALIDATION
+        # =================================================
 
-                FAKE_REVIEWS_DB.append(review)
+        if not SCRAPER_AVAILABLE:
+
+            return {
+
+                "success": False,
+
+                "message":
+                    "scraper.py import failed",
+
+                "company_id": company_id
+            }
+
+        # =================================================
+        # GOOGLE PLACE ID
+        # =================================================
+
+        google_place_id = getattr(
+            company,
+            "place_id",
+            None
+        )
+
+        if not google_place_id:
+
+            google_place_id = getattr(
+                company,
+                "google_place_id",
+                None
+            )
+
+        if not google_place_id:
+
+            return {
+
+                "success": False,
+
+                "message":
+                    "Google Place ID missing",
+
+                "company_id": company_id
+            }
+
+        logger.info(
+            f"🌍 SCRAPING => {google_place_id}"
+        )
+
+        # =================================================
+        # SCRAPE REVIEWS
+        # =================================================
+
+        scraped_reviews = scrape_google_reviews(
+            google_place_id
+        )
+
+        if not scraped_reviews:
+
+            return {
+
+                "success": False,
+
+                "message":
+                    "No reviews fetched",
+
+                "company_id": company_id,
+
+                "inserted_reviews": 0
+            }
+
+        inserted_reviews = 0
+        duplicate_reviews = 0
+        failed_reviews = 0
+
+        # =================================================
+        # INSERT REVIEWS
+        # =================================================
+
+        for item in scraped_reviews:
+
+            try:
+
+                review_text = str(
+
+                    item.get(
+                        "review_text",
+
+                        item.get(
+                            "content",
+                            ""
+                        )
+                    )
+
+                ).strip()
+
+                if not review_text:
+
+                    continue
+
+                author = item.get(
+                    "author",
+                    "Anonymous"
+                )
+
+                # =========================================
+                # DUPLICATE CHECK
+                # =========================================
+
+                existing_review = db.query(Review).filter(
+
+                    and_(
+
+                        Review.company_id == company_id,
+
+                        Review.review_text == review_text,
+
+                        Review.author == author
+                    )
+
+                ).first()
+
+                if existing_review:
+
+                    duplicate_reviews += 1
+
+                    continue
+
+                # =========================================
+                # SENTIMENT
+                # =========================================
+
+                rating = int(
+                    item.get(
+                        "rating",
+                        0
+                    )
+                )
+
+                sentiment = "neutral"
+
+                if rating >= 4:
+
+                    sentiment = "positive"
+
+                elif rating <= 2:
+
+                    sentiment = "negative"
+
+                # =========================================
+                # CREATE REVIEW
+                # =========================================
+
+                review = Review(
+
+                    company_id=company_id,
+
+                    author=author,
+
+                    rating=rating,
+
+                    review_text=review_text,
+
+                    sentiment=sentiment,
+
+                    source=item.get(
+                        "source",
+                        "Google"
+                    ),
+
+                    review_date=datetime.utcnow(),
+
+                    created_at=datetime.utcnow()
+                )
+
+                db.add(review)
 
                 inserted_reviews += 1
+
+            except Exception as review_error:
+
+                failed_reviews += 1
+
+                logger.error(
+                    f"❌ REVIEW INSERT ERROR => {review_error}"
+                )
+
+        # =================================================
+        # COMMIT DATABASE
+        # =================================================
+
+        db.commit()
+
+        logger.info(
+            f"✅ SYNC COMPLETE => {inserted_reviews}"
+        )
 
         return {
 
             "success": True,
 
-            "message": "POST ROUTE WORKING",
+            "message":
+                "Reviews synced successfully",
 
             "company_id": company_id,
 
+            "company_name": company.name,
+
             "inserted_reviews": inserted_reviews,
 
-            "total_reviews":
-                len(FAKE_REVIEWS_DB),
+            "duplicate_reviews": duplicate_reviews,
 
-            "reviews": new_reviews
+            "failed_reviews": failed_reviews,
+
+            "total_scraped": len(scraped_reviews)
         }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
+
+        db.rollback()
+
+        logger.error(
+            f"❌ SYNC ERROR => {e}"
+        )
+
+        logger.error(
+            traceback.format_exc()
+        )
 
         raise HTTPException(
 
@@ -247,18 +529,22 @@ async def sync_reviews(company_id: int):
 # =========================================================
 
 @router.get("/analytics/{company_id}")
-async def review_analytics(company_id: int):
+async def review_analytics(
+
+    company_id: int,
+
+    db: Session = Depends(get_db)
+):
 
     try:
 
-        reviews = [
+        reviews = db.query(Review).filter(
+            Review.company_id == company_id
+        ).all()
 
-            review for review in FAKE_REVIEWS_DB
+        total_reviews = len(reviews)
 
-            if review["company_id"] == company_id
-        ]
-
-        if not reviews:
+        if total_reviews == 0:
 
             return {
 
@@ -268,23 +554,15 @@ async def review_analytics(company_id: int):
 
                 "total_reviews": 0,
 
-                "average_rating": 0,
-
-                "positive_reviews": 0,
-
-                "negative_reviews": 0,
-
-                "neutral_reviews": 0
+                "average_rating": 0
             }
-
-        total_reviews = len(reviews)
 
         average_rating = round(
 
-            sum(
-                review["rating"]
+            sum([
+                review.rating
                 for review in reviews
-            ) / total_reviews,
+            ]) / total_reviews,
 
             2
         )
@@ -293,21 +571,21 @@ async def review_analytics(company_id: int):
 
             review for review in reviews
 
-            if review["sentiment"] == "positive"
+            if review.sentiment == "positive"
         ])
 
         negative_reviews = len([
 
             review for review in reviews
 
-            if review["sentiment"] == "negative"
+            if review.sentiment == "negative"
         ])
 
         neutral_reviews = len([
 
             review for review in reviews
 
-            if review["sentiment"] == "neutral"
+            if review.sentiment == "neutral"
         ])
 
         return {
@@ -329,6 +607,10 @@ async def review_analytics(company_id: int):
 
     except Exception as e:
 
+        logger.error(
+            f"❌ ANALYTICS ERROR => {e}"
+        )
+
         raise HTTPException(
 
             status_code=500,
@@ -341,22 +623,20 @@ async def review_analytics(company_id: int):
 # =========================================================
 
 @router.delete("/delete/{review_id}")
-async def delete_review(review_id: int):
+async def delete_review(
+
+    review_id: int,
+
+    db: Session = Depends(get_db)
+):
 
     try:
 
-        global FAKE_REVIEWS_DB
+        review = db.query(Review).filter(
+            Review.id == review_id
+        ).first()
 
-        initial_count = len(FAKE_REVIEWS_DB)
-
-        FAKE_REVIEWS_DB = [
-
-            review for review in FAKE_REVIEWS_DB
-
-            if review["id"] != review_id
-        ]
-
-        if len(FAKE_REVIEWS_DB) == initial_count:
+        if not review:
 
             raise HTTPException(
 
@@ -364,6 +644,10 @@ async def delete_review(review_id: int):
 
                 detail="Review not found"
             )
+
+        db.delete(review)
+
+        db.commit()
 
         return {
 
@@ -379,34 +663,14 @@ async def delete_review(review_id: int):
 
     except Exception as e:
 
+        db.rollback()
+
         raise HTTPException(
 
             status_code=500,
 
             detail=str(e)
         )
-
-# =========================================================
-# HEALTH CHECK
-# =========================================================
-
-@router.get("/health")
-async def reviews_health():
-
-    return {
-
-        "success": True,
-
-        "service": "reviews",
-
-        "status": "healthy",
-
-        "total_reviews":
-            len(FAKE_REVIEWS_DB),
-
-        "timestamp":
-            datetime.utcnow().isoformat()
-    }
 
 # =========================================================
 # END OF FILE
