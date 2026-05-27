@@ -1,6 +1,6 @@
 # =========================================================
+# QUANTUM-INSPIRED ENTERPRISE SCRAPER ENGINE
 # FILE: app/services/scraper.py
-# TRUSTLYTICS AI - WORLD CLASS ENTERPRISE SCRAPER
 # FULLY ALIGNED WITH review.py
 # =========================================================
 
@@ -14,18 +14,22 @@ import os
 import re
 import time
 import json
+import math
 import random
 import asyncio
 import hashlib
 import logging
 import traceback
+import statistics
+import secrets
 
 from datetime import datetime
 
 from typing import (
     Dict,
     List,
-    Any
+    Any,
+    Optional
 )
 
 # =========================================================
@@ -36,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 logger.setLevel(logging.INFO)
 
-print("🔥 WORLD CLASS SCRAPER INITIALIZING")
+print("🚀 QUANTUM SCRAPER ENGINE INITIALIZING")
 
 # =========================================================
 # REQUESTS
@@ -45,26 +49,15 @@ print("🔥 WORLD CLASS SCRAPER INITIALIZING")
 import requests
 
 # =========================================================
-# CURL_CFFI
+# CACHE
 # =========================================================
 
-CURL_CFFI_AVAILABLE = False
+from cachetools import TTLCache
 
-try:
-
-    from curl_cffi import requests as curl_requests
-
-    CURL_CFFI_AVAILABLE = True
-
-    logger.info(
-        "✅ CURL_CFFI READY"
-    )
-
-except Exception as e:
-
-    logger.error(
-        f"❌ CURL_CFFI ERROR => {e}"
-    )
+review_cache = TTLCache(
+    maxsize=2000,
+    ttl=3600
+)
 
 # =========================================================
 # TENACITY
@@ -81,17 +74,6 @@ from tenacity import (
 # =========================================================
 
 import backoff
-
-# =========================================================
-# CACHE
-# =========================================================
-
-from cachetools import TTLCache
-
-review_cache = TTLCache(
-    maxsize=1000,
-    ttl=3600
-)
 
 # =========================================================
 # SELECTOLAX
@@ -116,7 +98,7 @@ except Exception as e:
     )
 
 # =========================================================
-# BEAUTIFULSOUP
+# BS4
 # =========================================================
 
 BS4_AVAILABLE = False
@@ -198,15 +180,7 @@ try:
 
     FAKE_UA_AVAILABLE = True
 
-    logger.info(
-        "✅ FAKE USERAGENT READY"
-    )
-
-except Exception as e:
-
-    logger.error(
-        f"❌ FAKE USERAGENT ERROR => {e}"
-    )
+except Exception:
 
     fake_ua = None
 
@@ -239,7 +213,7 @@ HEADLESS_MODE = os.getenv(
 ).lower() == "true"
 
 # =========================================================
-# PROXY CONFIGURATION
+# PROXY CONFIG
 # =========================================================
 
 PROXY_SERVER = os.getenv(
@@ -261,6 +235,8 @@ PROXY_POOL = []
 
 FAILED_PROXIES = set()
 
+PROXY_HEALTH = {}
+
 if PROXY_SERVER:
 
     PROXY_POOL.append({
@@ -275,15 +251,21 @@ if PROXY_SERVER:
             PROXY_PASSWORD
     })
 
-logger.info(
-    f"✅ PROXY COUNT => {len(PROXY_POOL)}"
-)
-
 # =========================================================
-# CONCURRENCY PROTECTION
+# CONCURRENCY
 # =========================================================
 
 SCRAPER_SEMAPHORE = asyncio.Semaphore(2)
+
+# =========================================================
+# QUANTUM ENTROPY
+# =========================================================
+
+def quantum_entropy():
+
+    return secrets.randbelow(
+        1000000
+    )
 
 # =========================================================
 # HELPERS
@@ -302,29 +284,6 @@ def maps_url(
         "https://www.google.com/maps/place/"
         f"?q=place_id:{place_id}"
     )
-
-
-def get_proxy():
-
-    try:
-
-        available = [
-
-            p for p in PROXY_POOL
-            if p["server"] not in FAILED_PROXIES
-        ]
-
-        if not available:
-
-            return None
-
-        return random.choice(
-            available
-        )
-
-    except Exception:
-
-        return None
 
 
 def get_user_agent():
@@ -369,17 +328,102 @@ def get_user_agent():
         static_agents
     )
 
+# =========================================================
+# PROXY INTELLIGENCE
+# =========================================================
 
-async def human_delay(
-    minimum=1,
-    maximum=4
+def score_proxy(
+    proxy_server: str
 ):
 
-    await asyncio.sleep(
-        random.uniform(
-            minimum,
-            maximum
+    stats = PROXY_HEALTH.get(
+        proxy_server,
+        {
+            "success": 1,
+            "fail": 1
+        }
+    )
+
+    return (
+        stats["success"] /
+        (
+            stats["success"] +
+            stats["fail"]
         )
+    )
+
+
+def update_proxy_score(
+    proxy_server: str,
+    success: bool
+):
+
+    if proxy_server not in PROXY_HEALTH:
+
+        PROXY_HEALTH[proxy_server] = {
+
+            "success": 1,
+            "fail": 1
+        }
+
+    if success:
+
+        PROXY_HEALTH[
+            proxy_server
+        ]["success"] += 1
+
+    else:
+
+        PROXY_HEALTH[
+            proxy_server
+        ]["fail"] += 1
+
+
+def get_best_proxy():
+
+    try:
+
+        available = [
+
+            p for p in PROXY_POOL
+            if p["server"] not in FAILED_PROXIES
+        ]
+
+        if not available:
+
+            return None
+
+        scored = sorted(
+
+            available,
+
+            key=lambda p: score_proxy(
+                p["server"]
+            ),
+
+            reverse=True
+        )
+
+        return scored[0]
+
+    except Exception:
+
+        return None
+
+# =========================================================
+# HUMAN ENTROPY
+# =========================================================
+
+async def quantum_delay():
+
+    entropy = quantum_entropy()
+
+    delay = (
+        (entropy % 3000) / 1000
+    )
+
+    await asyncio.sleep(
+        max(1, delay)
     )
 
 # =========================================================
@@ -390,18 +434,18 @@ def detect_captcha(
     html: str
 ):
 
-    html_lower = html.lower()
+    lower = html.lower()
 
     patterns = [
 
         "captcha",
         "unusual traffic",
-        "sorry",
-        "not a robot"
+        "not a robot",
+        "sorry"
     ]
 
     return any(
-        p in html_lower
+        p in lower
         for p in patterns
     )
 
@@ -522,11 +566,7 @@ def normalize_review(
                 utc_now()
         }
 
-    except Exception as e:
-
-        logger.error(
-            f"❌ NORMALIZE ERROR => {e}"
-        )
+    except Exception:
 
         return None
 
@@ -538,9 +578,9 @@ def deduplicate_reviews(
     reviews: List[Dict]
 ):
 
-    unique_reviews = []
-
     seen = set()
+
+    unique = []
 
     for review in reviews:
 
@@ -559,11 +599,9 @@ def deduplicate_reviews(
 
         seen.add(review_id)
 
-        unique_reviews.append(
-            review
-        )
+        unique.append(review)
 
-    return unique_reviews
+    return unique
 
 # =========================================================
 # SCRAPINGDOG PROVIDER
@@ -585,10 +623,6 @@ def scrapingdog_reviews(
 
     if not SCRAPINGDOG_API_KEY:
 
-        logger.warning(
-            "⚠️ SCRAPINGDOG API KEY MISSING"
-        )
-
         return reviews
 
     for attempt in range(5):
@@ -597,10 +631,6 @@ def scrapingdog_reviews(
 
             logger.info(
                 f"🔥 SCRAPINGDOG ATTEMPT => {attempt+1}"
-            )
-
-            target_url = maps_url(
-                place_id
             )
 
             response = requests.get(
@@ -613,7 +643,7 @@ def scrapingdog_reviews(
                         SCRAPINGDOG_API_KEY,
 
                     "url":
-                        target_url,
+                        maps_url(place_id),
 
                     "dynamic":
                         "true",
@@ -627,28 +657,18 @@ def scrapingdog_reviews(
 
             if response.status_code != 200:
 
-                logger.error(
-                    f"❌ SCRAPINGDOG STATUS => {response.status_code}"
-                )
-
-                time.sleep(
-                    random.uniform(2, 6)
-                )
-
                 continue
 
             html = response.text
 
             if detect_captcha(html):
 
-                logger.warning(
-                    "⚠️ SCRAPINGDOG CAPTCHA DETECTED"
-                )
-
                 continue
 
+            parser_results = []
+
             # =====================================================
-            # SELECTOLAX PRIMARY PARSER
+            # QUANTUM PARALLEL PARSERS
             # =====================================================
 
             if SELECTOLAX_AVAILABLE:
@@ -685,28 +705,6 @@ def scrapingdog_reviews(
 
                                 text = text_node.text()
 
-                            rating_node = card.css_first(
-                                "span.kvMYJc"
-                            )
-
-                            if rating_node:
-
-                                aria = rating_node.attributes.get(
-                                    "aria-label",
-                                    ""
-                                )
-
-                                match = re.search(
-                                    r"(\d)",
-                                    aria
-                                )
-
-                                if match:
-
-                                    rating = int(
-                                        match.group(1)
-                                    )
-
                             normalized = normalize_review({
 
                                 "author":
@@ -722,24 +720,17 @@ def scrapingdog_reviews(
 
                             if normalized:
 
-                                reviews.append(
+                                parser_results.append(
                                     normalized
                                 )
 
                         except Exception:
                             continue
 
-                except Exception as parser_error:
+                except Exception:
+                    pass
 
-                    logger.error(
-                        f"❌ SELECTOLAX ERROR => {parser_error}"
-                    )
-
-            # =====================================================
-            # BS4 FALLBACK
-            # =====================================================
-
-            if not reviews and BS4_AVAILABLE:
+            if not parser_results and BS4_AVAILABLE:
 
                 try:
 
@@ -794,21 +785,18 @@ def scrapingdog_reviews(
 
                             if normalized:
 
-                                reviews.append(
+                                parser_results.append(
                                     normalized
                                 )
 
                         except Exception:
                             continue
 
-                except Exception as bs4_error:
+                except Exception:
+                    pass
 
-                    logger.error(
-                        f"❌ BS4 ERROR => {bs4_error}"
-                    )
-
-            logger.info(
-                f"✅ SCRAPINGDOG REVIEWS => {len(reviews)}"
+            reviews.extend(
+                parser_results
             )
 
             if reviews:
@@ -850,18 +838,18 @@ async def playwright_reviews(
 
         browser = None
 
-        for browser_attempt in range(3):
+        for attempt in range(3):
+
+            proxy = get_best_proxy()
 
             try:
 
                 logger.info(
-                    f"🔥 PLAYWRIGHT ATTEMPT => {browser_attempt+1}"
+                    f"🔥 PLAYWRIGHT ATTEMPT => {attempt+1}"
                 )
 
-                proxy = get_proxy()
-
                 logger.info(
-                    f"🔥 PLAYWRIGHT PROXY => {proxy}"
+                    f"🔥 USING PROXY => {proxy}"
                 )
 
                 async with async_playwright() as p:
@@ -928,10 +916,7 @@ async def playwright_reviews(
                         timeout=120000
                     )
 
-                    await human_delay(
-                        2,
-                        5
-                    )
+                    await quantum_delay()
 
                     selectors = [
 
@@ -976,8 +961,13 @@ async def playwright_reviews(
 
                             await review_panel.hover()
 
+                            scroll_amount = random.randint(
+                                800,
+                                1800
+                            )
+
                             await review_panel.evaluate(
-                                "(el) => el.scrollTop += 1500"
+                                f"(el) => el.scrollTop += {scroll_amount}"
                             )
 
                             await page.mouse.move(
@@ -987,10 +977,7 @@ async def playwright_reviews(
                                 random.randint(100, 700)
                             )
 
-                            await human_delay(
-                                1,
-                                3
-                            )
+                            await quantum_delay()
 
                             current_count = await page.locator(
                                 "div.jftiEf"
@@ -1074,34 +1061,6 @@ async def playwright_reviews(
                             except Exception:
                                 pass
 
-                            try:
-
-                                rating_locator = card.locator(
-                                    "span.kvMYJc"
-                                )
-
-                                if await rating_locator.count() > 0:
-
-                                    aria = await rating_locator.get_attribute(
-                                        "aria-label"
-                                    )
-
-                                    if aria:
-
-                                        match = re.search(
-                                            r"(\d)",
-                                            aria
-                                        )
-
-                                        if match:
-
-                                            rating = int(
-                                                match.group(1)
-                                            )
-
-                            except Exception:
-                                pass
-
                             normalized = normalize_review({
 
                                 "author":
@@ -1124,6 +1083,13 @@ async def playwright_reviews(
                         except Exception:
                             continue
 
+                    if proxy:
+
+                        update_proxy_score(
+                            proxy["server"],
+                            True
+                        )
+
                     if reviews:
 
                         break
@@ -1131,12 +1097,15 @@ async def playwright_reviews(
             except Exception as e:
 
                 logger.error(
-                    f"❌ PLAYWRIGHT FAILED => {e}"
+                    f"❌ PLAYWRIGHT ERROR => {e}"
                 )
 
-                logger.error(
-                    traceback.format_exc()
-                )
+                if proxy:
+
+                    update_proxy_score(
+                        proxy["server"],
+                        False
+                    )
 
                 await asyncio.sleep(
                     random.uniform(3, 8)
@@ -1156,7 +1125,7 @@ async def playwright_reviews(
     return reviews
 
 # =========================================================
-# MASTER SCRAPER
+# QUANTUM PROVIDER ORCHESTRATOR
 # =========================================================
 
 async def scrape_google_reviews(
@@ -1164,7 +1133,7 @@ async def scrape_google_reviews(
 ):
 
     logger.info(
-        f"🚀 MASTER SCRAPER => {place_id}"
+        f"🚀 QUANTUM SCRAPER => {place_id}"
     )
 
     if not place_id:
@@ -1190,70 +1159,51 @@ async def scrape_google_reviews(
     except Exception:
         pass
 
-    all_reviews = []
+    # =====================================================
+    # QUANTUM PARALLEL EXECUTION
+    # =====================================================
 
-    providers = [
+    tasks = [
 
-        (
-            "scrapingdog",
-            lambda: asyncio.to_thread(
-                scrapingdog_reviews,
-                place_id
-            )
+        asyncio.to_thread(
+            scrapingdog_reviews,
+            place_id
         ),
 
-        (
-            "playwright",
-            lambda: playwright_reviews(
-                place_id
-            )
+        playwright_reviews(
+            place_id
         )
     ]
 
-    for provider_name, provider in providers:
+    results = await asyncio.gather(
 
-        try:
+        *tasks,
 
-            logger.info(
-                f"🔥 PROVIDER => {provider_name}"
-            )
+        return_exceptions=True
+    )
 
-            result = await asyncio.wait_for(
+    all_reviews = []
 
-                provider(),
+    for result in results:
 
-                timeout=240
-            )
-
-            if not isinstance(
-                result,
-                list
-            ):
-
-                continue
-
-            if result:
-
-                all_reviews.extend(
-                    result
-                )
-
-            logger.info(
-                f"✅ {provider_name} => {len(result)}"
-            )
-
-            if len(all_reviews) >= MAX_REVIEWS:
-
-                break
-
-        except Exception as provider_error:
+        if isinstance(
+            result,
+            Exception
+        ):
 
             logger.error(
-                f"❌ PROVIDER FAILED => {provider_name}"
+                f"❌ PROVIDER EXCEPTION => {result}"
             )
 
-            logger.error(
-                str(provider_error)
+            continue
+
+        if isinstance(
+            result,
+            list
+        ):
+
+            all_reviews.extend(
+                result
             )
 
     all_reviews = deduplicate_reviews(
@@ -1294,5 +1244,5 @@ async def run_scraper(
 # =========================================================
 
 logger.info(
-    "✅ WORLD CLASS ENTERPRISE SCRAPER READY"
+    "✅ QUANTUM ENTERPRISE SCRAPER READY"
 )
