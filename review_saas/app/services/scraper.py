@@ -1,6 +1,6 @@
 # =========================================================
 # FILE: app/services/scraper.py
-# QUANTUM ENTERPRISE SCRAPER ENGINE
+# QUANTUM ENTERPRISE GOOGLE REVIEW SCRAPER
 # FULLY ALIGNED WITH review.py
 # =========================================================
 
@@ -13,14 +13,12 @@ from __future__ import annotations
 import os
 import re
 import time
-import math
 import json
 import random
 import asyncio
 import hashlib
 import logging
 import traceback
-import statistics
 import secrets
 
 from datetime import datetime
@@ -28,8 +26,7 @@ from datetime import datetime
 from typing import (
     Dict,
     List,
-    Any,
-    Optional
+    Any
 )
 
 # =========================================================
@@ -40,35 +37,13 @@ logger = logging.getLogger(__name__)
 
 logger.setLevel(logging.INFO)
 
-print("🚀 QUANTUM SCRAPER ENGINE INITIALIZING")
+print("🚀 QUANTUM ENTERPRISE SCRAPER BOOTING")
 
 # =========================================================
 # REQUESTS
 # =========================================================
 
 import requests
-
-# =========================================================
-# CURL_CFFI
-# =========================================================
-
-CURL_CFFI_AVAILABLE = False
-
-try:
-
-    from curl_cffi import requests as curl_requests
-
-    CURL_CFFI_AVAILABLE = True
-
-    logger.info(
-        "✅ CURL_CFFI READY"
-    )
-
-except Exception as e:
-
-    logger.error(
-        f"❌ CURL_CFFI ERROR => {e}"
-    )
 
 # =========================================================
 # CACHE
@@ -120,7 +95,7 @@ except Exception as e:
     )
 
 # =========================================================
-# BS4
+# BEAUTIFULSOUP
 # =========================================================
 
 BS4_AVAILABLE = False
@@ -139,6 +114,28 @@ except Exception as e:
 
     logger.error(
         f"❌ BS4 ERROR => {e}"
+    )
+
+# =========================================================
+# CURL_CFFI
+# =========================================================
+
+CURL_CFFI_AVAILABLE = False
+
+try:
+
+    from curl_cffi import requests as curl_requests
+
+    CURL_CFFI_AVAILABLE = True
+
+    logger.info(
+        "✅ CURL_CFFI READY"
+    )
+
+except Exception as e:
+
+    logger.error(
+        f"❌ CURL_CFFI ERROR => {e}"
     )
 
 # =========================================================
@@ -211,7 +208,7 @@ except Exception as e:
     )
 
 # =========================================================
-# FAKE USER AGENT
+# FAKE USERAGENT
 # =========================================================
 
 FAKE_UA_AVAILABLE = False
@@ -229,7 +226,7 @@ except Exception:
     fake_ua = None
 
 # =========================================================
-# ENVIRONMENT
+# ENVIRONMENT VARIABLES
 # =========================================================
 
 SCRAPER_TIMEOUT = int(
@@ -252,7 +249,7 @@ HEADLESS_MODE = os.getenv(
 ).lower() == "true"
 
 # =========================================================
-# PROXY CONFIG
+# PROXY CONFIGURATION
 # =========================================================
 
 PROXY_SERVER = os.getenv(
@@ -347,14 +344,6 @@ def get_user_agent():
             "AppleWebKit/537.36 "
             "(KHTML, like Gecko) "
             "Chrome/124.0 Safari/537.36"
-        ),
-
-        (
-            "Mozilla/5.0 "
-            "(X11; Linux x86_64) "
-            "AppleWebKit/537.36 "
-            "(KHTML, like Gecko) "
-            "Chrome/123.0 Safari/537.36"
         )
     ]
 
@@ -609,7 +598,11 @@ def normalize_review(
                 utc_now()
         }
 
-    except Exception:
+    except Exception as e:
+
+        logger.error(
+            f"❌ NORMALIZE ERROR => {e}"
+        )
 
         return None
 
@@ -633,11 +626,9 @@ def deduplicate_reviews(
         )
 
         if not review_id:
-
             continue
 
         if review_id in seen:
-
             continue
 
         seen.add(review_id)
@@ -647,213 +638,36 @@ def deduplicate_reviews(
     return unique
 
 # =========================================================
-# CURL_CFFI PROVIDER
+# DEBUG HELPERS
 # =========================================================
 
-def curl_cffi_reviews(
-    place_id: str
+async def debug_page(
+    page,
+    stage: str
 ):
-
-    reviews = []
-
-    if not CURL_CFFI_AVAILABLE:
-
-        return reviews
 
     try:
 
-        proxy = get_best_proxy()
-
-        proxies = None
-
-        if proxy:
-
-            proxy_url = (
-                f"http://"
-                f"{proxy['username']}:"
-                f"{proxy['password']}@"
-                f"{proxy['server'].replace('http://','')}"
-            )
-
-            proxies = {
-
-                "http": proxy_url,
-                "https": proxy_url
-            }
-
-        response = curl_requests.get(
-
-            maps_url(place_id),
-
-            impersonate="chrome124",
-
-            proxies=proxies,
-
-            headers={
-
-                "User-Agent":
-                    get_user_agent()
-            },
-
-            timeout=SCRAPER_TIMEOUT
+        logger.info(
+            f"🔥 PAGE URL [{stage}] => {page.url}"
         )
 
-        html = response.text
+        logger.info(
+            f"🔥 PAGE TITLE [{stage}] => {await page.title()}"
+        )
 
-        if detect_captcha(html):
+        await page.screenshot(
 
-            return reviews
+            path=f"debug_{stage}.png",
 
-        if SELECTOLAX_AVAILABLE:
-
-            tree = HTMLParser(html)
-
-            cards = tree.css(
-                "div.jftiEf"
-            )
-
-            for card in cards:
-
-                try:
-
-                    author = ""
-                    text = ""
-
-                    author_node = card.css_first(
-                        ".d4r55"
-                    )
-
-                    if author_node:
-
-                        author = author_node.text()
-
-                    text_node = card.css_first(
-                        ".wiI7pd"
-                    )
-
-                    if text_node:
-
-                        text = text_node.text()
-
-                    normalized = normalize_review({
-
-                        "author":
-                            author,
-
-                        "rating":
-                            5,
-
-                        "review_text":
-                            text
-
-                    }, place_id)
-
-                    if normalized:
-
-                        reviews.append(
-                            normalized
-                        )
-
-                except Exception:
-                    continue
+            full_page=True
+        )
 
     except Exception as e:
 
         logger.error(
-            f"❌ CURL_CFFI ERROR => {e}"
+            f"❌ DEBUG ERROR => {e}"
         )
-
-    return reviews
-
-# =========================================================
-# CRAWL4AI PROVIDER
-# =========================================================
-
-async def crawl4ai_reviews(
-    place_id: str
-):
-
-    reviews = []
-
-    if not CRAWL4AI_AVAILABLE:
-
-        return reviews
-
-    try:
-
-        async with AsyncWebCrawler() as crawler:
-
-            result = await crawler.arun(
-
-                url=maps_url(place_id)
-            )
-
-            html = result.html
-
-            if detect_captcha(html):
-
-                return reviews
-
-            if SELECTOLAX_AVAILABLE:
-
-                tree = HTMLParser(html)
-
-                cards = tree.css(
-                    "div.jftiEf"
-                )
-
-                for card in cards:
-
-                    try:
-
-                        author = ""
-                        text = ""
-
-                        author_node = card.css_first(
-                            ".d4r55"
-                        )
-
-                        if author_node:
-
-                            author = author_node.text()
-
-                        text_node = card.css_first(
-                            ".wiI7pd"
-                        )
-
-                        if text_node:
-
-                            text = text_node.text()
-
-                        normalized = normalize_review({
-
-                            "author":
-                                author,
-
-                            "rating":
-                                5,
-
-                            "review_text":
-                                text
-
-                        }, place_id)
-
-                        if normalized:
-
-                            reviews.append(
-                                normalized
-                            )
-
-                    except Exception:
-                        continue
-
-    except Exception as e:
-
-        logger.error(
-            f"❌ CRAWL4AI ERROR => {e}"
-        )
-
-    return reviews
 
 # =========================================================
 # PLAYWRIGHT PROVIDER
@@ -872,6 +686,10 @@ async def playwright_reviews(
 
     if not PLAYWRIGHT_AVAILABLE:
 
+        logger.error(
+            "❌ PLAYWRIGHT NOT AVAILABLE"
+        )
+
         return reviews
 
     async with SCRAPER_SEMAPHORE:
@@ -883,6 +701,14 @@ async def playwright_reviews(
             proxy = get_best_proxy()
 
             try:
+
+                logger.info(
+                    f"🔥 PLAYWRIGHT ATTEMPT => {attempt+1}"
+                )
+
+                logger.info(
+                    f"🔥 ACTIVE PROXY => {proxy}"
+                )
 
                 async with async_playwright() as p:
 
@@ -939,9 +765,17 @@ async def playwright_reviews(
                         except Exception:
                             pass
 
+                    target_url = maps_url(
+                        place_id
+                    )
+
+                    logger.info(
+                        f"🔥 TARGET URL => {target_url}"
+                    )
+
                     await page.goto(
 
-                        maps_url(place_id),
+                        target_url,
 
                         wait_until="domcontentloaded",
 
@@ -950,14 +784,27 @@ async def playwright_reviews(
 
                     await quantum_delay()
 
+                    await debug_page(
+                        page,
+                        "before_reviews"
+                    )
+
+                    # =====================================================
+                    # OPEN REVIEW PANEL
+                    # =====================================================
+
                     selectors = [
 
                         'button[jsaction*="pane.reviewChart.moreReviews"]',
 
                         'button[aria-label*="reviews"]',
 
-                        'button[aria-label*="Reviews"]'
+                        'button[aria-label*="Reviews"]',
+
+                        'button[data-tab-index="1"]'
                     ]
+
+                    clicked = False
 
                     for selector in selectors:
 
@@ -967,27 +814,68 @@ async def playwright_reviews(
                                 selector
                             ).first
 
-                            if await locator.count() > 0:
+                            count = await locator.count()
+
+                            logger.info(
+                                f"🔥 SELECTOR {selector} => {count}"
+                            )
+
+                            if count > 0:
 
                                 await locator.click()
 
+                                clicked = True
+
+                                logger.info(
+                                    f"✅ CLICKED => {selector}"
+                                )
+
                                 break
 
-                        except Exception:
-                            continue
+                        except Exception as e:
+
+                            logger.error(
+                                f"❌ CLICK ERROR => {e}"
+                            )
+
+                    if not clicked:
+
+                        logger.error(
+                            "❌ REVIEW BUTTON NOT FOUND"
+                        )
 
                     await page.wait_for_timeout(
-                        5000
+                        8000
                     )
+
+                    await debug_page(
+                        page,
+                        "after_reviews_click"
+                    )
+
+                    html = await page.content()
+
+                    if detect_captcha(html):
+
+                        logger.error(
+                            "❌ CAPTCHA DETECTED"
+                        )
+
+                        return reviews
+
+                    # =====================================================
+                    # DYNAMIC SCROLL
+                    # =====================================================
 
                     review_panel = page.locator(
                         "div.m6QErb"
                     ).nth(1)
 
                     previous_count = 0
+
                     no_growth = 0
 
-                    while no_growth < 3:
+                    while no_growth < 5:
 
                         try:
 
@@ -1002,18 +890,15 @@ async def playwright_reviews(
                                 f"(el) => el.scrollTop += {scroll_amount}"
                             )
 
-                            await page.mouse.move(
-
-                                random.randint(100, 1200),
-
-                                random.randint(100, 700)
-                            )
-
                             await quantum_delay()
 
                             current_count = await page.locator(
                                 "div.jftiEf"
                             ).count()
+
+                            logger.info(
+                                f"🔥 REVIEW COUNT => {current_count}"
+                            )
 
                             if current_count == previous_count:
 
@@ -1029,7 +914,12 @@ async def playwright_reviews(
 
                                 break
 
-                        except Exception:
+                        except Exception as e:
+
+                            logger.error(
+                                f"❌ SCROLL ERROR => {e}"
+                            )
+
                             break
 
                     cards = page.locator(
@@ -1037,6 +927,10 @@ async def playwright_reviews(
                     )
 
                     total_cards = await cards.count()
+
+                    logger.info(
+                        f"🔥 FINAL CARD COUNT => {total_cards}"
+                    )
 
                     total_cards = min(
                         total_cards,
@@ -1050,7 +944,10 @@ async def playwright_reviews(
                             card = cards.nth(index)
 
                             author = "Anonymous"
+
                             text = ""
+
+                            rating = 5
 
                             try:
 
@@ -1084,13 +981,41 @@ async def playwright_reviews(
                             except Exception:
                                 pass
 
+                            try:
+
+                                rating_locator = card.locator(
+                                    "span.kvMYJc"
+                                )
+
+                                if await rating_locator.count() > 0:
+
+                                    aria = await rating_locator.get_attribute(
+                                        "aria-label"
+                                    )
+
+                                    if aria:
+
+                                        match = re.search(
+                                            r"(\\d)",
+                                            aria
+                                        )
+
+                                        if match:
+
+                                            rating = int(
+                                                match.group(1)
+                                            )
+
+                            except Exception:
+                                pass
+
                             normalized = normalize_review({
 
                                 "author":
                                     author,
 
                                 "rating":
-                                    5,
+                                    rating,
 
                                 "review_text":
                                     text
@@ -1103,8 +1028,15 @@ async def playwright_reviews(
                                     normalized
                                 )
 
-                        except Exception:
-                            continue
+                        except Exception as e:
+
+                            logger.error(
+                                f"❌ REVIEW PARSE ERROR => {e}"
+                            )
+
+                    logger.info(
+                        f"✅ PLAYWRIGHT REVIEWS => {len(reviews)}"
+                    )
 
                     if proxy:
 
@@ -1121,6 +1053,10 @@ async def playwright_reviews(
 
                 logger.error(
                     f"❌ PLAYWRIGHT ERROR => {e}"
+                )
+
+                logger.error(
+                    traceback.format_exc()
                 )
 
                 if proxy:
@@ -1148,7 +1084,7 @@ async def playwright_reviews(
     return reviews
 
 # =========================================================
-# QUANTUM ORCHESTRATOR
+# MASTER SCRAPER
 # =========================================================
 
 async def scrape_google_reviews(
@@ -1156,7 +1092,7 @@ async def scrape_google_reviews(
 ):
 
     logger.info(
-        f"🚀 QUANTUM SCRAPER => {place_id}"
+        f"🚀 MASTER SCRAPER => {place_id}"
     )
 
     if not place_id:
@@ -1173,48 +1109,27 @@ async def scrape_google_reviews(
 
         if cached:
 
+            logger.info(
+                "⚡ CACHE HIT"
+            )
+
             return cached
 
     except Exception:
         pass
 
-    tasks = [
-
-        asyncio.to_thread(
-            curl_cffi_reviews,
-            place_id
-        ),
-
-        crawl4ai_reviews(
-            place_id
-        ),
-
-        playwright_reviews(
-            place_id
-        )
-    ]
-
-    results = await asyncio.gather(
-
-        *tasks,
-
-        return_exceptions=True
-    )
-
     all_reviews = []
 
-    for result in results:
+    try:
 
-        if isinstance(
-            result,
-            Exception
-        ):
+        result = await asyncio.wait_for(
 
-            logger.error(
-                f"❌ PROVIDER EXCEPTION => {result}"
-            )
+            playwright_reviews(
+                place_id
+            ),
 
-            continue
+            timeout=300
+        )
 
         if isinstance(
             result,
@@ -1224,6 +1139,12 @@ async def scrape_google_reviews(
             all_reviews.extend(
                 result
             )
+
+    except Exception as e:
+
+        logger.error(
+            f"❌ SCRAPER ERROR => {e}"
+        )
 
     all_reviews = deduplicate_reviews(
         all_reviews
