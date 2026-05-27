@@ -1,6 +1,7 @@
 # =========================================================
 # FILE: app/services/scraper.py
 # QUANTUM ENTERPRISE GOOGLE REVIEW SCRAPER
+# PATCHRIGHT + PLAYWRIGHT STEALTH + CRAWL4AI
 # FULLY ALIGNED WITH review.py
 # =========================================================
 
@@ -13,7 +14,6 @@ from __future__ import annotations
 import os
 import re
 import time
-import json
 import random
 import asyncio
 import hashlib
@@ -38,12 +38,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 print("🚀 QUANTUM ENTERPRISE SCRAPER BOOTING")
-
-# =========================================================
-# REQUESTS
-# =========================================================
-
-import requests
 
 # =========================================================
 # CACHE
@@ -139,28 +133,28 @@ except Exception as e:
     )
 
 # =========================================================
-# PLAYWRIGHT
+# PATCHRIGHT
 # =========================================================
 
-PLAYWRIGHT_AVAILABLE = False
+PATCHRIGHT_AVAILABLE = False
 
 try:
 
-    from playwright.async_api import (
+    from patchright.async_api import (
         async_playwright,
         TimeoutError as PlaywrightTimeoutError
     )
 
-    PLAYWRIGHT_AVAILABLE = True
+    PATCHRIGHT_AVAILABLE = True
 
     logger.info(
-        "✅ PLAYWRIGHT READY"
+        "✅ PATCHRIGHT READY"
     )
 
 except Exception as e:
 
     logger.error(
-        f"❌ PLAYWRIGHT ERROR => {e}"
+        f"❌ PATCHRIGHT ERROR => {e}"
     )
 
 # =========================================================
@@ -208,7 +202,7 @@ except Exception as e:
     )
 
 # =========================================================
-# FAKE USERAGENT
+# FAKE USER AGENT
 # =========================================================
 
 FAKE_UA_AVAILABLE = False
@@ -298,8 +292,13 @@ logger.info(
 SCRAPER_SEMAPHORE = asyncio.Semaphore(2)
 
 # =========================================================
-# QUANTUM ENTROPY
+# HELPERS
 # =========================================================
+
+def utc_now():
+
+    return datetime.utcnow()
+
 
 def quantum_entropy():
 
@@ -307,13 +306,18 @@ def quantum_entropy():
         1000000
     )
 
-# =========================================================
-# HELPERS
-# =========================================================
 
-def utc_now():
+async def quantum_delay():
 
-    return datetime.utcnow()
+    entropy = quantum_entropy()
+
+    delay = (
+        (entropy % 3000) / 1000
+    )
+
+    await asyncio.sleep(
+        max(1, delay)
+    )
 
 
 def maps_url(
@@ -358,6 +362,29 @@ def get_user_agent():
 
     return random.choice(
         static_agents
+    )
+
+# =========================================================
+# CAPTCHA DETECTION
+# =========================================================
+
+def detect_captcha(
+    html: str
+):
+
+    html_lower = html.lower()
+
+    patterns = [
+
+        "captcha",
+        "unusual traffic",
+        "not a robot",
+        "sorry"
+    ]
+
+    return any(
+        p in html_lower
+        for p in patterns
     )
 
 # =========================================================
@@ -441,45 +468,6 @@ def get_best_proxy():
     except Exception:
 
         return None
-
-# =========================================================
-# QUANTUM DELAY
-# =========================================================
-
-async def quantum_delay():
-
-    entropy = quantum_entropy()
-
-    delay = (
-        (entropy % 3000) / 1000
-    )
-
-    await asyncio.sleep(
-        max(1, delay)
-    )
-
-# =========================================================
-# CAPTCHA DETECTION
-# =========================================================
-
-def detect_captcha(
-    html: str
-):
-
-    lower = html.lower()
-
-    patterns = [
-
-        "captcha",
-        "unusual traffic",
-        "not a robot",
-        "sorry"
-    ]
-
-    return any(
-        p in lower
-        for p in patterns
-    )
 
 # =========================================================
 # REVIEW NORMALIZATION
@@ -670,7 +658,7 @@ async def debug_page(
         )
 
 # =========================================================
-# PLAYWRIGHT PROVIDER
+# PATCHRIGHT PROVIDER
 # =========================================================
 
 @backoff.on_exception(
@@ -678,16 +666,16 @@ async def debug_page(
     Exception,
     max_time=300
 )
-async def playwright_reviews(
+async def patchright_reviews(
     place_id: str
 ):
 
     reviews = []
 
-    if not PLAYWRIGHT_AVAILABLE:
+    if not PATCHRIGHT_AVAILABLE:
 
         logger.error(
-            "❌ PLAYWRIGHT NOT AVAILABLE"
+            "❌ PATCHRIGHT NOT AVAILABLE"
         )
 
         return reviews
@@ -703,7 +691,7 @@ async def playwright_reviews(
             try:
 
                 logger.info(
-                    f"🔥 PLAYWRIGHT ATTEMPT => {attempt+1}"
+                    f"🔥 PATCHRIGHT ATTEMPT => {attempt+1}"
                 )
 
                 logger.info(
@@ -718,6 +706,8 @@ async def playwright_reviews(
 
                         proxy=proxy,
 
+                        channel="chrome",
+
                         args=[
 
                             "--disable-blink-features=AutomationControlled",
@@ -728,7 +718,21 @@ async def playwright_reviews(
 
                             "--window-size=1920,1080",
 
-                            "--no-sandbox"
+                            "--no-sandbox",
+
+                            "--disable-web-security",
+
+                            "--disable-features=IsolateOrigins,site-per-process",
+
+                            "--disable-site-isolation-trials",
+
+                            "--disable-infobars",
+
+                            "--start-maximized",
+
+                            "--disable-extensions",
+
+                            "--disable-popup-blocking"
                         ]
                     )
 
@@ -738,23 +742,39 @@ async def playwright_reviews(
 
                         locale="en-US",
 
+                        timezone_id="America/New_York",
+
+                        color_scheme="dark",
+
                         viewport={
 
                             "width":
                                 random.randint(
-                                    1280,
+                                    1366,
                                     1920
                                 ),
 
                             "height":
                                 random.randint(
-                                    720,
+                                    768,
                                     1080
                                 )
                         }
                     )
 
                     page = await context.new_page()
+
+                    await page.add_init_script(
+                        """
+                        Object.defineProperty(
+                            navigator,
+                            'webdriver',
+                            {
+                                get: () => undefined
+                            }
+                        );
+                        """
+                    )
 
                     if STEALTH_AVAILABLE:
 
@@ -777,23 +797,24 @@ async def playwright_reviews(
 
                         target_url,
 
-                        wait_until="domcontentloaded",
+                        wait_until="networkidle",
 
-                        timeout=120000
+                        timeout=180000
                     )
 
-                    await quantum_delay()
+                    await page.wait_for_timeout(
+                        random.randint(
+                            4000,
+                            9000
+                        )
+                    )
 
                     await debug_page(
                         page,
                         "before_reviews"
                     )
 
-                    # =====================================================
-                    # OPEN REVIEW PANEL
-                    # =====================================================
-
-                    selectors = [
+                    review_button_selectors = [
 
                         'button[jsaction*="pane.reviewChart.moreReviews"]',
 
@@ -806,7 +827,7 @@ async def playwright_reviews(
 
                     clicked = False
 
-                    for selector in selectors:
+                    for selector in review_button_selectors:
 
                         try:
 
@@ -817,7 +838,7 @@ async def playwright_reviews(
                             count = await locator.count()
 
                             logger.info(
-                                f"🔥 SELECTOR {selector} => {count}"
+                                f"🔥 REVIEW BUTTON {selector} => {count}"
                             )
 
                             if count > 0:
@@ -850,7 +871,7 @@ async def playwright_reviews(
 
                     await debug_page(
                         page,
-                        "after_reviews_click"
+                        "after_review_click"
                     )
 
                     html = await page.content()
@@ -863,13 +884,51 @@ async def playwright_reviews(
 
                         return reviews
 
-                    # =====================================================
-                    # DYNAMIC SCROLL
-                    # =====================================================
+                    review_selectors = [
 
-                    review_panel = page.locator(
-                        "div.m6QErb"
-                    ).nth(1)
+                        "div.jftiEf",
+
+                        "div[data-review-id]",
+
+                        "div.MyEned",
+
+                        "div[class*=review]",
+
+                        "div[class*=fontBodyMedium]"
+                    ]
+
+                    cards = None
+
+                    for selector in review_selectors:
+
+                        try:
+
+                            locator = page.locator(
+                                selector
+                            )
+
+                            count = await locator.count()
+
+                            logger.info(
+                                f"🔥 REVIEW SELECTOR {selector} => {count}"
+                            )
+
+                            if count > 0:
+
+                                cards = locator
+
+                                break
+
+                        except Exception:
+                            continue
+
+                    if cards is None:
+
+                        logger.error(
+                            "❌ NO REVIEW CARDS FOUND"
+                        )
+
+                        return reviews
 
                     previous_count = 0
 
@@ -879,22 +938,24 @@ async def playwright_reviews(
 
                         try:
 
-                            await review_panel.hover()
+                            await page.mouse.move(
 
-                            scroll_amount = random.randint(
-                                800,
-                                1800
+                                random.randint(100, 1200),
+
+                                random.randint(100, 700)
                             )
 
-                            await review_panel.evaluate(
-                                f"(el) => el.scrollTop += {scroll_amount}"
+                            await page.mouse.wheel(
+                                0,
+                                random.randint(
+                                    1200,
+                                    3000
+                                )
                             )
 
                             await quantum_delay()
 
-                            current_count = await page.locator(
-                                "div.jftiEf"
-                            ).count()
+                            current_count = await cards.count()
 
                             logger.info(
                                 f"🔥 REVIEW COUNT => {current_count}"
@@ -922,10 +983,6 @@ async def playwright_reviews(
 
                             break
 
-                    cards = page.locator(
-                        "div.jftiEf"
-                    )
-
                     total_cards = await cards.count()
 
                     logger.info(
@@ -951,32 +1008,60 @@ async def playwright_reviews(
 
                             try:
 
-                                author_locator = card.locator(
-                                    ".d4r55"
-                                )
+                                author_selectors = [
 
-                                if await author_locator.count() > 0:
+                                    ".d4r55",
 
-                                    author = (
-                                        await author_locator
-                                        .inner_text()
-                                    ).strip()
+                                    ".TSUbDb",
+
+                                    "span[class*=author]"
+                                ]
+
+                                for selector in author_selectors:
+
+                                    locator = card.locator(
+                                        selector
+                                    )
+
+                                    if await locator.count() > 0:
+
+                                        author = (
+                                            await locator
+                                            .first
+                                            .inner_text()
+                                        ).strip()
+
+                                        break
 
                             except Exception:
                                 pass
 
                             try:
 
-                                text_locator = card.locator(
-                                    ".wiI7pd"
-                                )
+                                text_selectors = [
 
-                                if await text_locator.count() > 0:
+                                    ".wiI7pd",
 
-                                    text = (
-                                        await text_locator
-                                        .inner_text()
-                                    ).strip()
+                                    ".MyEned",
+
+                                    "span[jsname]"
+                                ]
+
+                                for selector in text_selectors:
+
+                                    locator = card.locator(
+                                        selector
+                                    )
+
+                                    if await locator.count() > 0:
+
+                                        text = (
+                                            await locator
+                                            .first
+                                            .inner_text()
+                                        ).strip()
+
+                                        break
 
                             except Exception:
                                 pass
@@ -1035,7 +1120,7 @@ async def playwright_reviews(
                             )
 
                     logger.info(
-                        f"✅ PLAYWRIGHT REVIEWS => {len(reviews)}"
+                        f"✅ PATCHRIGHT REVIEWS => {len(reviews)}"
                     )
 
                     if proxy:
@@ -1052,7 +1137,7 @@ async def playwright_reviews(
             except Exception as e:
 
                 logger.error(
-                    f"❌ PLAYWRIGHT ERROR => {e}"
+                    f"❌ PATCHRIGHT ERROR => {e}"
                 )
 
                 logger.error(
@@ -1124,7 +1209,7 @@ async def scrape_google_reviews(
 
         result = await asyncio.wait_for(
 
-            playwright_reviews(
+            patchright_reviews(
                 place_id
             ),
 
@@ -1184,5 +1269,5 @@ async def run_scraper(
 # =========================================================
 
 logger.info(
-    "✅ QUANTUM ENTERPRISE SCRAPER READY"
+    "✅ QUANTUM PATCHRIGHT SCRAPER READY"
 )
