@@ -814,16 +814,22 @@ async def patchright_reviews(
                         "before_reviews"
                     )
 
-                    review_button_selectors = [
+                   review_button_selectors = [
 
-                        'button[jsaction*="pane.reviewChart.moreReviews"]',
+    'button[jsaction*="pane.reviewChart.moreReviews"]',
 
-                        'button[aria-label*="reviews"]',
+    'button[aria-label*="reviews"]',
 
-                        'button[aria-label*="Reviews"]',
+    'button[aria-label*="Reviews"]',
 
-                        'button[data-tab-index="1"]'
-                    ]
+    'button[data-tab-index="1"]',
+
+    'button[aria-label*="Review"]',
+
+    'button[jsaction*="reviews"]',
+
+    '[role="tab"][aria-label*="Reviews"]'
+]
 
                     clicked = False
 
@@ -945,13 +951,20 @@ async def patchright_reviews(
                                 random.randint(100, 700)
                             )
 
-                            await page.mouse.wheel(
-                                0,
-                                random.randint(
-                                    1200,
-                                    3000
-                                )
-                            )
+                            await page.evaluate("""
+() => {
+
+    const panels = document.querySelectorAll(
+        '[role="main"]'
+    );
+
+    for (const panel of panels) {
+
+        panel.scrollTop =
+            panel.scrollTop + 2500;
+    }
+}
+""")
 
                             await quantum_delay()
 
