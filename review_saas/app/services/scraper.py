@@ -1094,9 +1094,9 @@ async def patchright_reviews(
                                     if aria:
 
                                         match = re.search(
-                                            r"(\\d)",
-                                            aria
-                                        )
+    r"(\d)",
+    aria
+)
 
                                         if match:
 
